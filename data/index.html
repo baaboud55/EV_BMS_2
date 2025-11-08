@@ -1,0 +1,189 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced BMS Monitor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.0/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔋 Advanced BMS Monitor Dashboard</h1>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </header>
+
+        <div class="dashboard">
+            <!-- Status Cards -->
+            <div class="status-cards">
+                <div class="card voltage-card">
+                    <div class="card-header">
+                        <h3>Pack Voltage</h3>
+                        <span class="unit">V</span>
+                    </div>
+                    <div class="card-value" id="packVoltage">--</div>
+                </div>
+
+                <div class="card current-card">
+                    <div class="card-header">
+                        <h3>Current</h3>
+                        <span class="unit">A</span>
+                    </div>
+                    <div class="card-value" id="current">--</div>
+                </div>
+
+                <div class="card soc-card">
+                    <div class="card-header">
+                        <h3>State of Charge</h3>
+                        <span class="unit">%</span>
+                    </div>
+                    <div class="card-value" id="soc">--</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="socProgress"></div>
+                    </div>
+                </div>
+
+                <div class="card soh-card">
+                    <div class="card-header">
+                        <h3>State of Health</h3>
+                        <span class="unit">%</span>
+                    </div>
+                    <div class="card-value" id="soh">--</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="sohProgress"></div>
+                    </div>
+                </div>
+
+                <div class="card battery-state-card">
+                    <div class="card-header">
+                        <h3>Battery State</h3>
+                    </div>
+                    <div class="battery-state-value" id="batteryState">--</div>
+                </div>
+
+                <div class="card runtime-card">
+                    <div class="card-header">
+                        <h3>Remaining Runtime</h3>
+                        <span class="unit">h</span>
+                    </div>
+                    <div class="card-value" id="remainingRuntime">--</div>
+                </div>
+
+                <div class="card capacity-card">
+                    <div class="card-header">
+                        <h3>Cumulative Capacity</h3>
+                        <span class="unit">Ah</span>
+                    </div>
+                    <div class="card-value" id="cumulativeCapacity">--</div>
+                </div>
+            </div>
+
+            <!-- Protection and Control Indicators -->
+            <div class="indicators-section">
+                <h2>System Status Indicators</h2>
+                <div class="indicators-grid">
+                    <div class="indicator-card">
+                        <h4>Protection & Control</h4>
+                        <div class="indicator-items">
+                            <div class="indicator-item">
+                                <span class="indicator-led" id="prechargeLed"></span>
+                                <span>Precharge Circuit</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="indicator-led" id="protectionLed"></span>
+                                <span>Protection PMOS</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="indicator-led" id="balancingLed"></span>
+                                <span>Active Balancing</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="indicator-card fault-card">
+                        <h4>Fault Status</h4>
+                        <div class="indicator-items">
+                            <div class="indicator-item">
+                                <span class="fault-led" id="overvoltageAlarm"></span>
+                                <span>Overvoltage</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="fault-led" id="undervoltageAlarm"></span>
+                                <span>Undervoltage</span>
+                            </div>
+                            <div class="indicator-item">
+                                <span class="fault-led" id="overcurrentAlarm"></span>
+                                <span>Overcurrent</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="indicator-card temperature-card">
+                        <h4>Slave Temperatures</h4>
+                        <div class="temperature-grid">
+                            <div class="temp-item">
+                                <span>Slave 1:</span>
+                                <span id="temp1">--°C</span>
+                            </div>
+                            <div class="temp-item">
+                                <span>Slave 2:</span>
+                                <span id="temp2">--°C</span>
+                            </div>
+                            <div class="temp-item">
+                                <span>Slave 3:</span>
+                                <span id="temp3">--°C</span>
+                            </div>
+                            <div class="temp-item">
+                                <span>Slave 4:</span>
+                                <span id="temp4">--°C</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="chart-container wide-chart">
+                    <h3>Individual Cell Voltages (8 Cells)</h3>
+                    <canvas id="cellVoltagesChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Pack Voltage Over Time</h3>
+                    <canvas id="voltageChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Current Over Time</h3>
+                    <canvas id="currentChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>State of Charge Over Time</h3>
+                    <canvas id="socChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>State of Health Over Time</h3>
+                    <canvas id="sohChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Remaining Runtime</h3>
+                    <canvas id="runtimeChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
