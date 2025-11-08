@@ -17,7 +17,7 @@
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <LittleFS.h>
+#include <SPIFFS.h>               // <--- switched to SPIFFS
 #include <ArduinoJson.h>
 
 // ========== WiFi Configuration ==========
@@ -299,13 +299,13 @@ void setup() {
     // Initialize random seed for simulation (remove when using real sensors)
     randomSeed(analogRead(0));
 
-    // Initialize LittleFS for web files
-    if(!LittleFS.begin(true)) {
-        Serial.println("ERROR: LittleFS Mount Failed!");
+    // Initialize SPIFFS for web files (replaced LittleFS with SPIFFS)
+    if(!SPIFFS.begin(true)) {
+        Serial.println("ERROR: SPIFFS Mount Failed!");
         Serial.println("Make sure to upload filesystem with 'pio run --target uploadfs'");
         return;
     }
-    Serial.println("✓ LittleFS mounted successfully");
+    Serial.println("✓ SPIFFS mounted successfully");
 
     // TODO: Initialize your BMS hardware here
     // Example:
@@ -343,17 +343,17 @@ void setup() {
     server.addHandler(&ws);
     Serial.println("✓ WebSocket handler initialized");
 
-    // Serve static files from LittleFS
+    // Serve static files from SPIFFS (replaced LittleFS with SPIFFS)
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/index.html", "text/html");
+        request->send(SPIFFS, "/index.html", "text/html");
     });
 
     server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/style.css", "text/css");
+        request->send(SPIFFS, "/style.css", "text/css");
     });
 
     server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/script.js", "text/javascript");
+        request->send(SPIFFS, "/script.js", "text/javascript");
     });
 
     // API endpoint for HTTP polling (backup to WebSocket)
