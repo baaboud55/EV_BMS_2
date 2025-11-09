@@ -21,9 +21,9 @@
 #include "PIDController.h"
 #include "ChargeController.h"
 
-// ==================== WiFi CONFIGURATION ====================
-const char* ssid = "BMS_Monitor";
-const char* password = "12345678";
+// ========== WiFi Configuration ==========
+const char* ssid = "Galaxy S21+";        // Replace with your WiFi SSID
+const char* password = "77897890"; // Replace with your WiFi password
 
 // ==================== WEB SERVER ====================
 AsyncWebServer server(80);
