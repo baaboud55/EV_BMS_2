@@ -9,8 +9,8 @@
 
 // ==================== PIN DEFINITIONS ====================
 const int CURRENT_SENSOR_PIN = 1;       // ACS712 current sensor
-const int FEEDBACK_PIN = 20;            // Voltage feedback for CV mode
-const int STARTUP_SENSE_PIN = 21;       // Charger input voltage sense
+const int FEEDBACK_PIN = 19;            // Voltage feedback for CV mode
+const int STARTUP_SENSE_PIN = 20;       // Charger input voltage sense
 const int PRECHARGE_RELAY = 45;         // Precharge relay control
 const int CHARGE_ENABLE_PIN = 47;       // Charger enable/disable
 const int PWM_PIN = 48;                 // PWM for charge current control
@@ -26,7 +26,7 @@ const int ACS_VCC_VOLTAGE = 3300;       // mV (measured value)
 
 // ==================== BATTERY PARAMETERS ====================
 const int NUM_CELLS = 8;
-const int NUM_SLAVES = 4;               // Changed from 2 to 4 for GUI
+const int NUM_SLAVES = 2;               // Changed from 2 to 4 for GUI
 const float BATTERY_CAPACITY = 100.0;   // Battery capacity in Ah
 
 // Voltage limits
