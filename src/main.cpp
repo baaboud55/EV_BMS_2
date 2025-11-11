@@ -159,6 +159,9 @@ void readCurrent() {
   float avgRawValue = (float)totalRawValue / numSamples;
   float voltage_mV = (avgRawValue / 4096.0) * ACS_VCC_VOLTAGE;
   measuredCurrent = (currentOffsetVoltage - voltage_mV) / (ACS_SENSITIVITY * 1000);
+  if (measuredCurrent < 0.15 && measuredCurrent > -0.15) {
+    measuredCurrent = 0.0;
+  }
 }
 
 // ----- Voltage Reading -----
@@ -312,13 +315,26 @@ BMSData getBMSData() {
     data.slaveTemperatures[1] = temps[0];
     data.slaveTemperatures[2] = temps[1];
     data.slaveTemperatures[3] = temps[1];
-    if (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV) {
-        data.batteryState = "CHARGING";
-    } else if (data.current < -0.1) {
-        data.batteryState = "DISCHARGING";
-    } else {
+
+    if (currentChargeState == CHARGING_CC) {
+        data.batteryState = "CHARGING_CC";
+    } else if (currentChargeState == CHARGING_CV) {
+        data.batteryState = "CHARGING_CV";
+    } else if (currentChargeState == IDLE) {
         data.batteryState = "IDLE";
+    } else if (currentChargeState == ERROR) {
+        data.batteryState = "ERROR";
+    } else if (currentChargeState == WAITING_FOR_CONDITIONS) {
+        data.batteryState = "WAITING_FOR_CONDITIONS";
+    } else if (currentChargeState == BALANCING) {
+        data.batteryState = "BALANCING";
+    } else if (currentChargeState == COMPLETE) {
+        data.batteryState = "COMPLETE";
     }
+    //} else if (currentChargeState == DISCHARGING) {
+    //    data.batteryState = DISCHARGING;
+    //}
+
     data.prechargeActive = precharge_state;
     data.protectionPMOSActive = (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV);
     data.activeBalancingActive = balanceStatus[0] && balanceStatus[1];
