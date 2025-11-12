@@ -14,6 +14,10 @@ const int STARTUP_SENSE_PIN = 20;       // Charger input voltage sense
 const int PRECHARGE_RELAY = 45;         // Precharge relay control
 const int CHARGE_ENABLE_PIN = 47;       // Charger enable/disable
 const int PWM_PIN = 48;                 // PWM for charge current control
+const int SD_MISO_PIN = 13;             // SD card MISO
+const int SD_MOSI_PIN = 11;             // SD card MOSI
+const int SD_SCK_PIN = 12;              // SD card SCK (Clock)
+const int SD_CS_PIN = 10;               // SD card CS (Chip Select)
 
 // ==================== PWM CONFIGURATION ====================
 const int PWM_FREQ = 62500;             // 62.5 kHz
@@ -60,11 +64,23 @@ const unsigned long BMS_READ_INTERVAL = 2000;       // 2 seconds
 const unsigned long STARTUP_CHECK_INTERVAL = 2000;  // 2 seconds
 const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
 const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
+const unsigned long SD_SAVE_INTERVAL = 60000;       // NEW: Save to SD every 60 seconds
 
 // ==================== SERIAL CONFIGURATION ====================
 const int SERIAL_BAUD = 115200;         // USB serial
 const int BMS_SERIAL_BAUD = 9600;       // BMS daisy-chain
 const int BMS_RX_PIN = 17;              // BMS RX pin
 const int BMS_TX_PIN = 16;              // BMS TX pin
+
+// ==================== KALMAN FILTER PARAMETERS (NEW) ====================
+const float KF_PROCESS_NOISE_COV = 1e-5;    // Process noise covariance Q
+const float KF_MEASUREMENT_NOISE_COV = 1e-2; // Measurement noise covariance R
+const float KF_INITIAL_ERROR_COV = 1.0;      // Initial error covariance P
+
+// ==================== SD CARD FILE PATHS (NEW) ====================
+const char* SOC_LOOKUP_FILE = "/soc_lookup.csv";
+const char* SOH_LOOKUP_FILE = "/soh_lookup.csv";
+const char* SOC_LOG_FILE = "/soc_log.csv";
+const char* SOH_LOG_FILE = "/soh_log.csv";
 
 #endif // BMS_CONFIG_H
