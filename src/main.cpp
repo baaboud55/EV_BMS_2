@@ -17,6 +17,9 @@
 #include "BMSConfig.h"
 #include "PIDController.h"
 #include "ChargeController.h"
+#include "SDCardManager.h"
+#include "KalmanFilter.h"
+
 
 // ------ WiFi Configuration ------
 const char* ssid = "Galaxy S21+";        // Replace with your WiFi SSID
@@ -56,6 +59,18 @@ float totalPackVoltage = 0;
 float maxCellVoltage = 0;
 float minCellVoltage = 0;
 float avgTemp = 0;
+
+// SD Card and Kalman Filter objects
+SDCardManager sdCard;
+KalmanFilterSOC kfSOC;
+KalmanFilterSOH kfSOH;
+
+// SOC/SOH state tracking
+float estimatedSOC = 50.0;
+float estimatedSOH = 100.0;
+int totalCycles = 0;
+unsigned long lastSDSaveTime = 0;
+bool lookupTablesInitialized = false;
 
 // Current sensing
 float measuredCurrent = 0.0;
@@ -313,15 +328,48 @@ void executeChargeControl() {
 }
 
 // ----- SOC/SOH Estimation -----
+// Replace calculateSOC() function
 float calculateSOC() {
-  float avgVoltage = totalPackVoltage / 8.0;
-  float soc = ((avgVoltage - 3.0) / (4.2 - 3.0)) * 100.0;
-  return constrain(soc, 0.0, 100.0);
+    if (!lookupTablesInitialized) {
+        // Fallback to simple voltage-based estimation
+        float avgVoltage = totalPackVoltage / 8.0;
+        float soc = ((avgVoltage - 3.0) / (4.2 - 3.0)) * 100.0;
+        return constrain(soc, 0.0, 100.0);
+    }
+    
+    // Use Kalman filter for SOC estimation
+    unsigned long currentTime = millis();
+    static unsigned long lastUpdateTime = 0;
+    
+    if (lastUpdateTime == 0) {
+        lastUpdateTime = currentTime;
+        return estimatedSOC;
+    }
+    
+    float dt = (currentTime - lastUpdateTime) / 1000.0;  // Convert to seconds
+    lastUpdateTime = currentTime;
+    
+    // Update Kalman filter
+    estimatedSOC = kfSOC.update(totalPackVoltage, measuredCurrent, avgTemp, dt);
+    
+    return estimatedSOC;
 }
 
+// Replace calculateSOH() function
 float calculateSOH() {
-  return 95.0; // Placeholder
+    if (!lookupTablesInitialized) {
+        return 95.0;  // Default placeholder
+    }
+    
+    // Update SOH based on capacity measurement (simplified)
+    // In real implementation, measure actual capacity during full charge/discharge
+    float measuredCapacity = BATTERY_CAPACITY * (estimatedSOH / 100.0);  // Placeholder
+    
+    estimatedSOH = kfSOH.update(measuredCapacity, totalCycles);
+    
+    return estimatedSOH;
 }
+
 
 // ----- GUI Packager -----
 BMSData getBMSData() {
@@ -408,6 +456,94 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
     }
 }
 
+// Initialize lookup tables on SD card (first-time setup)
+void initializeLookupTables() {
+    Serial.println("Creating default lookup tables...");
+    
+    // Create SOC lookup table (simplified)
+    SOCLookupEntry socTable[11];
+    for (int i = 0; i <= 10; i++) {
+        float soc = i * 10.0;
+        float tempFactor_minus10 = 1.0 - 0.028;
+        float tempFactor_0 = 1.0 - 0.020;
+        float tempFactor_10 = 1.0 - 0.012;
+        float tempFactor_20 = 1.0 - 0.004;
+        float tempFactor_25 = 1.0;
+        float tempFactor_30 = 1.0 + 0.004;
+        float tempFactor_40 = 1.0 + 0.012;
+        
+        socTable[i].soc_percent = soc;
+        socTable[i].ocv_minus10C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_minus10;
+        socTable[i].ocv_0C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_0;
+        socTable[i].ocv_10C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_10;
+        socTable[i].ocv_20C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_20;
+        socTable[i].ocv_25C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_25;
+        socTable[i].ocv_30C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_30;
+        socTable[i].ocv_40C = (3.0 + (4.2 - 3.0) * pow(soc/100.0, 0.9)) * tempFactor_40;
+    }
+    sdCard.saveSOCLookupTable(socTable, 11);
+    
+    // Create SOH lookup table
+    SOHLookupEntry sohTable[11] = {
+        {0, 100.0, 100.0, 0.0},
+        {100, 98.0, 98.0, 2.0},
+        {200, 96.0, 96.0, 5.0},
+        {300, 94.0, 94.0, 8.0},
+        {400, 92.0, 92.0, 12.0},
+        {500, 89.0, 89.0, 16.0},
+        {600, 86.0, 86.0, 21.0},
+        {700, 83.0, 83.0, 27.0},
+        {800, 79.0, 79.0, 34.0},
+        {900, 75.0, 75.0, 42.0},
+        {1000, 70.0, 70.0, 50.0}
+    };
+    sdCard.saveSOHLookupTable(sohTable, 11);
+    
+    Serial.println("Lookup tables created successfully!");
+}
+
+// Load initial SOC/SOH from SD card
+void loadInitialState() {
+    // Try to load from lookup tables
+    if (sdCard.fileExists(SOC_LOOKUP_FILE) && sdCard.fileExists(SOH_LOOKUP_FILE)) {
+        Serial.println("Loading lookup tables from SD card...");
+        
+        // Initialize SOC from voltage reading
+        float initialOCV = totalPackVoltage;  // Use measured pack voltage
+        estimatedSOC = sdCard.interpolateSOCFromOCV(initialOCV, avgTemp);
+        kfSOC.initialize(estimatedSOC, KF_PROCESS_NOISE_COV, KF_MEASUREMENT_NOISE_COV);
+        
+        // Initialize SOH from cycle count (assuming 0 for new battery)
+        estimatedSOH = sdCard.interpolateSOHFromCycles(totalCycles);
+        kfSOH.initialize(estimatedSOH, KF_PROCESS_NOISE_COV * 10, KF_MEASUREMENT_NOISE_COV * 10);
+        
+        lookupTablesInitialized = true;
+        Serial.printf("Initial state loaded: SOC=%.2f%%, SOH=%.2f%%\n", estimatedSOC, estimatedSOH);
+    } else {
+        Serial.println("Lookup tables not found. Creating defaults...");
+        initializeLookupTables();
+        loadInitialState();  // Retry after creating tables
+    }
+}
+
+// Save current SOC/SOH to SD card periodically
+void saveStateToSD() {
+    unsigned long currentTime = millis();
+    
+    if (currentTime - lastSDSaveTime >= SD_SAVE_INTERVAL) {
+        lastSDSaveTime = currentTime;
+        
+        // Log SOC data
+        sdCard.logSOCData(estimatedSOC, totalPackVoltage, avgTemp, currentTime);
+        
+        // Log SOH data
+        sdCard.logSOHData(estimatedSOH, totalCycles, BATTERY_CAPACITY * (estimatedSOH / 100.0), currentTime);
+        
+        Serial.println("State saved to SD card");
+    }
+}
+
+
 // ----- Setup -----
 void setup() {
     Serial.begin(SERIAL_BAUD);
@@ -432,7 +568,20 @@ void setup() {
     currentChargeState = CALIBRATING_CURRENT_SENSOR;
     calibrateCurrentSensor();
     currentChargeState = IDLE;
+
     if(!SPIFFS.begin(true)) { Serial.println("ERROR: SPIFFS Mount Failed!"); return; }
+
+        // Initialize SD card (ADD AFTER SPIFFS INITIALIZATION)
+    if (!sdCard.begin()) {
+        Serial.println("WARNING: SD Card initialization failed!");
+        Serial.println("Continuing without SD card support...");
+    } else {
+        // List files on SD card
+        sdCard.listFiles();
+        
+        // Load initial state from SD card
+        loadInitialState();
+    }
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     int attempts = 0;
@@ -516,9 +665,14 @@ void loop() {
     }
 
     executeChargeControl();
+    
     if (currentTime - lastWebUpdateTime >= WEB_UPDATE_INTERVAL) {
       lastWebUpdateTime = currentTime;
       sendBMSData();
+    }
+        // Save state to SD card periodically
+    if (sdCard.isInitialized()) {
+        saveStateToSD();
     }
     
     ws.cleanupClients();
