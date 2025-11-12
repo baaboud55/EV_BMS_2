@@ -360,7 +360,7 @@ class AdvancedBMSMonitor {
     }
 
     updateCharts(data) {
-        const timestamp = new Date(data.timestamp || Date.now());
+        const timestamp = new Date((data.timestamp || Date.now() / 1000) * 1000);
 
         // Update cell voltages chart
         if (this.charts.cellVoltagesChart && data.cellVoltages && Array.isArray(data.cellVoltages)) {

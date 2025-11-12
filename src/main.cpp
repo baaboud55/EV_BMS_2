@@ -36,6 +36,9 @@ const char* password = "77897890"; // Replace with your WiFi password
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
+// ------ Function Forward Declarations ------
+unsigned long getEpochTime();
+
 // ------ BMS Data Structure ------
 struct BMSData {
     float packVoltage;
@@ -99,6 +102,10 @@ unsigned long lastStartupCheckTime = 0;
 unsigned long lastCurrentReadTime = 0;
 unsigned long lastFBvoltageReadTime = 0;
 unsigned long lastWebUpdateTime = 0;
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 3 * 3600; // For GMT+3 (set as needed)
+const int daylightOffset_sec = 0; // Set as needed
+
 
 // Cumulative capacity tracking
 static float cumulativeAh = 0;
@@ -183,9 +190,9 @@ void readCurrent() {
   float avgRawValue = (float)totalRawValue / numSamples;
   float voltage_mV = (avgRawValue / 4096.0) * ACS_VCC_VOLTAGE;
   measuredCurrent = (currentOffsetVoltage - voltage_mV) / (ACS_SENSITIVITY * 1000);
-  if (abs(measuredCurrent) < 0.15) {
-    measuredCurrent = 0.0;
-  }
+  //if (abs(measuredCurrent) < 0.15) {
+  //  measuredCurrent = 0.0;
+  //}
 }
 
 // ----- Voltage Reading -----
@@ -329,7 +336,7 @@ void executeChargeControl() {
     case CHARGING_CC: performCCCharging(); break;
     case CHARGING_CV: performCVCharging(); break;
     case DISCHARGING: performDischarging(); break;
-    case BALANCING: if (balanceStatus[0] && balanceStatus[1]) stopCharging(); break;
+    case BALANCING: preCharging(); if (balanceStatus[0] && balanceStatus[1]) stopCharging(); break;
     case ERROR: stopCharging(); break;
   }
 }
@@ -550,6 +557,11 @@ void saveStateToSD() {
     }
 }
 
+unsigned long getEpochTime() {
+    time_t now;
+    time(&now);
+    return now; // seconds since Jan 1, 1970
+}
 
 // ----- Setup -----
 void setup() {
@@ -568,9 +580,10 @@ void setup() {
     ledcAttachPin(PWM_PIN, 0);
     ledcWrite(0, 511 - 0);
     pinMode(CURRENT_SENSOR_PIN, INPUT);
-    initPID(&currentPID, 50.0, 10.0, 2.0, 0.0, 511.0);
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    initPID(&currentPID, 50.0, 10.0, 2.0, 150.0, 384.0);
     currentPID.setpoint = CC_TARGET_CURRENT;
-    initPID(&voltagePID, 30.0, 5.0, 1.5, 0.0, 511.0);
+    initPID(&voltagePID, 30.0, 5.0, 1.5, 150.0, 384.0);
     voltagePID.setpoint = CV_TARGET_VOLTAGE;
     currentChargeState = CALIBRATING_CURRENT_SENSOR;
     calibrateCurrentSensor();

@@ -67,7 +67,7 @@ const unsigned long STARTUP_CHECK_INTERVAL = 2000;  // 2 seconds
 const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
 const unsigned long FB_VOLTAGE_READ_INTERVAL = 100; // 100ms
 const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
-const unsigned long SD_SAVE_INTERVAL = 60000;       // NEW: Save to SD every 60 seconds
+const unsigned long SD_SAVE_INTERVAL = 5000;       // NEW: Save to SD every 60 seconds
 extern bool fbVoltageChanged;
 extern bool currentChanged;
 
