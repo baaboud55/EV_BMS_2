@@ -20,6 +20,13 @@
 #include "SDCardManager.h"
 #include "KalmanFilter.h"
 
+// ------ Global Variable Definitions (from BMSConfig.h) ------
+bool fbVoltageChanged = false;
+bool currentChanged = false;
+const char* SOC_LOOKUP_FILE = "/soc_lookup.csv";
+const char* SOH_LOOKUP_FILE = "/soh_lookup.csv";
+const char* SOC_LOG_FILE = "/soc_log.csv";
+const char* SOH_LOG_FILE = "/soh_log.csv";
 
 // ------ WiFi Configuration ------
 const char* ssid = "Galaxy S21+";        // Replace with your WiFi SSID

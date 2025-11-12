@@ -68,8 +68,8 @@ const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
 const unsigned long FB_VOLTAGE_READ_INTERVAL = 100; // 100ms
 const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
 const unsigned long SD_SAVE_INTERVAL = 60000;       // NEW: Save to SD every 60 seconds
-bool fbVoltageChanged = false;
-bool currentChanged = false;
+extern bool fbVoltageChanged;
+extern bool currentChanged;
 
 // ==================== SERIAL CONFIGURATION ====================
 const int SERIAL_BAUD = 115200;         // USB serial
@@ -83,9 +83,9 @@ const float KF_MEASUREMENT_NOISE_COV = 1e-2; // Measurement noise covariance R
 const float KF_INITIAL_ERROR_COV = 1.0;      // Initial error covariance P
 
 // ==================== SD CARD FILE PATHS (NEW) ====================
-const char* SOC_LOOKUP_FILE = "/soc_lookup.csv";
-const char* SOH_LOOKUP_FILE = "/soh_lookup.csv";
-const char* SOC_LOG_FILE = "/soc_log.csv";
-const char* SOH_LOG_FILE = "/soh_log.csv";
+extern const char* SOC_LOOKUP_FILE;
+extern const char* SOH_LOOKUP_FILE;
+extern const char* SOC_LOG_FILE;
+extern const char* SOH_LOG_FILE;
 
 #endif // BMS_CONFIG_H
