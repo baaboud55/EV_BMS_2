@@ -12,7 +12,9 @@ const int CURRENT_SENSOR_PIN = 1;       // ACS712 current sensor
 const int FEEDBACK_PIN = 19;            // Voltage feedback for CV mode
 const int STARTUP_SENSE_PIN = 20;       // Charger input voltage sense
 const int PRECHARGE_RELAY = 45;         // Precharge relay control
-const int CHARGE_ENABLE_PIN = 47;       // Charger enable/disable
+const int CHARGE_ENABLE_PIN = 47;
+const int LOAD_ENABLE_PIN = 40;
+const int LOAD_SWITCH_PIN = 42;                 // Load switch control
 const int PWM_PIN = 48;                 // PWM for charge current control
 
 // ==================== PWM CONFIGURATION ====================
@@ -59,7 +61,10 @@ const float INR2 = 9950.0;              // Input resistor 2
 const unsigned long BMS_READ_INTERVAL = 2000;       // 2 seconds
 const unsigned long STARTUP_CHECK_INTERVAL = 2000;  // 2 seconds
 const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
+const unsigned long FB_VOLTAGE_READ_INTERVAL = 100; // 100ms
 const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
+bool fbVoltageChanged = false;
+bool currentChanged = false;
 
 // ==================== SERIAL CONFIGURATION ====================
 const int SERIAL_BAUD = 115200;         // USB serial

@@ -59,14 +59,13 @@ float avgTemp = 0;
 
 // Current sensing
 float measuredCurrent = 0.0;
+float FB_VOLTAGE = 0.0;
 float currentOffsetVoltage = 0.0;
 bool currentSensorCalibrated = false;
 
 // Charging state
 ChargeState currentChargeState = IDLE;
 bool precharge_state = false;
-unsigned long S_time = 0;
-unsigned long E_time = 0;
 
 // PID controllers
 PIDController currentPID;  // For CC mode
@@ -76,6 +75,7 @@ PIDController voltagePID;  // For CV mode
 unsigned long lastBMSReadTime = 0;
 unsigned long lastStartupCheckTime = 0;
 unsigned long lastCurrentReadTime = 0;
+unsigned long lastFBvoltageReadTime = 0;
 unsigned long lastWebUpdateTime = 0;
 
 // Cumulative capacity tracking
@@ -139,6 +139,8 @@ void calibrateCurrentSensor() {
   Serial.println("Calibrating ACS712 sensor...");
   digitalWrite(PRECHARGE_RELAY, LOW);
   digitalWrite(CHARGE_ENABLE_PIN, LOW);
+  digitalWrite(LOAD_ENABLE_PIN, LOW);
+
   delay(5000);
   long totalRawValue = 0;
   for (int i = 0; i < 1000; i++) {
@@ -159,20 +161,20 @@ void readCurrent() {
   float avgRawValue = (float)totalRawValue / numSamples;
   float voltage_mV = (avgRawValue / 4096.0) * ACS_VCC_VOLTAGE;
   measuredCurrent = (currentOffsetVoltage - voltage_mV) / (ACS_SENSITIVITY * 1000);
-  if (measuredCurrent < 0.15 && measuredCurrent > -0.15) {
+  if (abs(measuredCurrent) < 0.15) {
     measuredCurrent = 0.0;
   }
 }
 
 // ----- Voltage Reading -----
-float readVoltage_FB() {
+void readVoltage_FB() {
   const int samples = 50;
   long sum = 0;
   for (int i = 0; i < samples; i++) {
     sum += analogRead(FEEDBACK_PIN);
   }
   int adcValue = sum / samples;
-  return (adcValue * 3.3 / 4095.0) * ((FBR1 + FBR2) / FBR2);
+  FB_VOLTAGE = (adcValue * 3.3 / 4095.0) * ((FBR1 + FBR2) / FBR2);
 }
 
 float readVoltage_IN() {
@@ -188,8 +190,6 @@ void preCharging() {
       delay(5000);
       digitalWrite(PRECHARGE_RELAY, HIGH);
       precharge_state = true;
-      S_time = millis();
-      E_time = millis();
       return;
     } 
     if (precharge_state) {
@@ -213,46 +213,62 @@ void stopCharging() {
 
 void waitForStartupCondition() {
   float IN_VOLTAGE = readVoltage_IN();
+
+  bool loadOK = digitalRead(LOAD_SWITCH_PIN);
   bool tempOK = (avgTemp >= MIN_TEMP && avgTemp <= MAX_TEMP);
   bool voltageOK = (minCellVoltage >= MIN_CHARGE_VOLTAGE && maxCellVoltage < MAX_CELL_VOLTAGE);
   bool sensorOK = currentSensorCalibrated;
   bool chargerOK = (IN_VOLTAGE >= 1.0);
+  
+
   if (tempOK && voltageOK && sensorOK && chargerOK) {
-    if (currentChargeState == IDLE || currentChargeState == WAITING_FOR_CONDITIONS) {
+    if (currentChargeState == IDLE || currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == DISCHARGING || currentChargeState == BALANCING) {
       currentChargeState = CHARGING_CC;
     }
   }
+
+  else if (tempOK && voltageOK && sensorOK && !chargerOK && loadOK) { 
+    if (currentChargeState == IDLE || currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == DISCHARGING || currentChargeState == BALANCING) {
+      currentChargeState = DISCHARGING;
+    }
+  }
+
+  else if (tempOK && voltageOK && sensorOK) { 
+    if (!balanceStatus[0] || !balanceStatus[1]) {
+      currentChargeState = BALANCING;
+    }
+  }
+
   else {
-    if (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV) {
+    if (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV || currentChargeState == DISCHARGING || currentChargeState == BALANCING || currentChargeState == ERROR) {
       currentChargeState = WAITING_FOR_CONDITIONS;
       stopCharging();
-    } else if (currentChargeState == IDLE) {
+
+    } else if (currentChargeState == IDLE|| currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == ERROR) {
       currentChargeState = WAITING_FOR_CONDITIONS;
     }
   }
 }
 
 void performCCCharging() {
-  if (totalPackVoltage >= CC_TO_CV_VOLTAGE) {
+  if (maxCellVoltage >= MAX_CELL_VOLTAGE) {
     currentChargeState = CHARGING_CV;
     voltagePID.integral = 0;
     voltagePID.prev_error = 0;
-    S_time = millis();
-    E_time = millis();
     return;
   }
   if (avgTemp > MAX_TEMP || avgTemp < MIN_TEMP) {
     currentChargeState = WAITING_FOR_CONDITIONS;
     return;
   }
+  digitalWrite(LOAD_ENABLE_PIN, LOW);
   digitalWrite(CHARGE_ENABLE_PIN, HIGH);
   preCharging();
-  readCurrent();
-  E_time = millis();
-  float dt = (E_time - S_time) / 1000.0;
-  float pidOutput = computePID(&currentPID, measuredCurrent, dt);
-  ledcWrite(0, 511 - (int)pidOutput);
-  S_time = millis();
+  if (currentChanged == true) {  
+    float pidOutput = computePID(&currentPID, measuredCurrent, 0.1);
+    ledcWrite(0, 511 - (int)pidOutput);
+    currentChanged = false;
+  }
 }
 
 void performCVCharging() {
@@ -260,7 +276,7 @@ void performCVCharging() {
     if (!balanceStatus[0] || !balanceStatus[1]) {
       currentChargeState = BALANCING;
     } else {
-      currentChargeState = COMPLETE;
+      currentChargeState = WAITING_FOR_CONDITIONS;
     }
     return;
   }
@@ -268,14 +284,20 @@ void performCVCharging() {
     currentChargeState = WAITING_FOR_CONDITIONS;
     return;
   }
+  digitalWrite(LOAD_ENABLE_PIN, LOW);
   digitalWrite(CHARGE_ENABLE_PIN, HIGH);
   preCharging();
-  float FB_VOLTAGE = readVoltage_FB();
-  E_time = millis();
-  float dt = (E_time - S_time) / 1000.0;
-  float pidOutput = computePID(&voltagePID, FB_VOLTAGE, dt);
-  ledcWrite(0, 511 - (int)pidOutput);
-  S_time = millis();
+  if (fbVoltageChanged == true) {  
+    float pidOutput = computePID(&voltagePID, FB_VOLTAGE, 0.1);
+    ledcWrite(0, 511 - (int)pidOutput);
+    fbVoltageChanged = false;
+  }
+}
+
+void performDischarging() {
+digitalWrite(LOAD_ENABLE_PIN, HIGH);
+digitalWrite(CHARGE_ENABLE_PIN, LOW);
+preCharging();
 }
 
 void executeChargeControl() {
@@ -284,10 +306,8 @@ void executeChargeControl() {
     case WAITING_FOR_CONDITIONS: stopCharging(); break;
     case CHARGING_CC: performCCCharging(); break;
     case CHARGING_CV: performCVCharging(); break;
-    case BALANCING:
-      if (balanceStatus[0] && balanceStatus[1]) currentChargeState = COMPLETE;
-      stopCharging(); break;
-    case COMPLETE: stopCharging(); break;
+    case DISCHARGING: performDischarging(); break;
+    case BALANCING: if (balanceStatus[0] && balanceStatus[1]) stopCharging(); break;
     case ERROR: stopCharging(); break;
   }
 }
@@ -312,9 +332,7 @@ BMSData getBMSData() {
     data.soh = calculateSOH();
     for (int i = 0; i < NUM_CELLS; i++) { data.cellVoltages[i] = cells[i]; }
     data.slaveTemperatures[0] = temps[0];
-    data.slaveTemperatures[1] = temps[0];
-    data.slaveTemperatures[2] = temps[1];
-    data.slaveTemperatures[3] = temps[1];
+    data.slaveTemperatures[1] = temps[1];
 
     if (currentChargeState == CHARGING_CC) {
         data.batteryState = "CHARGING_CC";
@@ -328,12 +346,9 @@ BMSData getBMSData() {
         data.batteryState = "WAITING_FOR_CONDITIONS";
     } else if (currentChargeState == BALANCING) {
         data.batteryState = "BALANCING";
-    } else if (currentChargeState == COMPLETE) {
-        data.batteryState = "COMPLETE";
+    } else if (currentChargeState == DISCHARGING) {
+        data.batteryState = "DISCHARGING";
     }
-    //} else if (currentChargeState == DISCHARGING) {
-    //    data.batteryState = DISCHARGING;
-    //}
 
     data.prechargeActive = precharge_state;
     data.protectionPMOSActive = (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV);
@@ -399,9 +414,12 @@ void setup() {
     Serial2.begin(BMS_SERIAL_BAUD, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
     pinMode(STARTUP_SENSE_PIN, INPUT);
     pinMode(FEEDBACK_PIN, INPUT);
+    pinMode(LOAD_SWITCH_PIN, INPUT);
     pinMode(PRECHARGE_RELAY, OUTPUT);
-    digitalWrite(PRECHARGE_RELAY, LOW);
+    pinMode(LOAD_ENABLE_PIN, OUTPUT);
     pinMode(CHARGE_ENABLE_PIN, OUTPUT);
+    digitalWrite(PRECHARGE_RELAY, LOW);
+    digitalWrite(LOAD_ENABLE_PIN, LOW);
     digitalWrite(CHARGE_ENABLE_PIN, LOW);
     ledcSetup(0, PWM_FREQ, PWM_RES);
     ledcAttachPin(PWM_PIN, 0);
@@ -476,22 +494,33 @@ void setup() {
 void loop() {
     unsigned long currentTime = millis();
     if (currentTime - lastBMSReadTime >= BMS_READ_INTERVAL) {
-        lastBMSReadTime = currentTime;
-        readBMSData();
+      lastBMSReadTime = currentTime;
+      readBMSData();
     }
+
     if (currentTime - lastCurrentReadTime >= CURRENT_READ_INTERVAL) {
-        lastCurrentReadTime = currentTime;
-        if (currentSensorCalibrated) readCurrent();
+      lastCurrentReadTime = currentTime;
+      if (currentSensorCalibrated) readCurrent();
+      currentChanged = true;
+    }
+
+    if (currentTime - lastFBvoltageReadTime >= FB_VOLTAGE_READ_INTERVAL) {
+      lastFBvoltageReadTime = currentTime;
+      readVoltage_FB();
+      fbVoltageChanged = true;
+
     }
     if (currentTime - lastStartupCheckTime >= STARTUP_CHECK_INTERVAL) {
-        lastStartupCheckTime = currentTime;
-        waitForStartupCondition();
+      lastStartupCheckTime = currentTime;
+      waitForStartupCondition();
     }
+
     executeChargeControl();
     if (currentTime - lastWebUpdateTime >= WEB_UPDATE_INTERVAL) {
-        lastWebUpdateTime = currentTime;
-        sendBMSData();
+      lastWebUpdateTime = currentTime;
+      sendBMSData();
     }
+    
     ws.cleanupClients();
     delay(10);
 }

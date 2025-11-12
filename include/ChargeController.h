@@ -16,7 +16,8 @@ enum ChargeState {
   CHARGING_CV,          // Constant Voltage mode
   BALANCING,
   COMPLETE,
-  ERROR
+  ERROR,
+  DISCHARGING
 };
 
 // ==================== GLOBAL CHARGE STATE ====================
