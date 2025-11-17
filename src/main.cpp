@@ -23,14 +23,10 @@
 // ------ Global Variable Definitions (from BMSConfig.h) ------
 bool fbVoltageChanged = false;
 bool currentChanged = false;
-const char* SOC_LOOKUP_FILE = "/soc_lookup.csv";
-const char* SOH_LOOKUP_FILE = "/soh_lookup.csv";
-const char* SOC_LOG_FILE = "/soc_log.csv";
-const char* SOH_LOG_FILE = "/soh_log.csv";
 
 // ------ WiFi Configuration ------
-const char* ssid = "Galaxy S21+";        // Replace with your WiFi SSID
-const char* password = "77897890"; // Replace with your WiFi password
+const char* ssid = "Galaxy S21";        // Replace with your WiFi SSID
+const char* password = "77897890 "; // Replace with your WiFi password
 
 // ------ Server Objects ------
 AsyncWebServer server(80);
@@ -179,6 +175,7 @@ void calibrateCurrentSensor() {
   currentOffsetVoltage = ((float)totalRawValue / 1000.0 / 4096.0) * ACS_VCC_VOLTAGE;
   currentSensorCalibrated = true;
   Serial.println("ACS712 calibration complete.");
+  Serial.println(currentOffsetVoltage);
 }
 
 void readCurrent() {
@@ -247,7 +244,7 @@ void waitForStartupCondition() {
   bool tempOK = (avgTemp >= MIN_TEMP && avgTemp <= MAX_TEMP);
   bool voltageOK = (minCellVoltage >= MIN_CHARGE_VOLTAGE && maxCellVoltage < MAX_CELL_VOLTAGE);
   bool sensorOK = currentSensorCalibrated;
-  bool chargerOK = (IN_VOLTAGE >= 1.0);
+  bool chargerOK = (IN_VOLTAGE >= 5.0);
   
 
   if (tempOK && voltageOK && sensorOK && chargerOK) {
@@ -552,6 +549,9 @@ void saveStateToSD() {
         
         // Log SOH data
         sdCard.logSOHData(estimatedSOH, totalCycles, BATTERY_CAPACITY * (estimatedSOH / 100.0), currentTime);
+        
+        // Log complete BMS data (NEW)
+        sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, currentTime);
         
         Serial.println("State saved to SD card");
     }

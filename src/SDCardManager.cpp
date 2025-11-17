@@ -390,3 +390,37 @@ float SDCardManager::linearInterpolate(float x, float x0, float x1, float y0, fl
     if (x1 == x0) return y0;
     return y0 + (x - x0) * (y1 - y0) / (x1 - x0);
 }
+
+bool SDCardManager::logBMSData(float* cellVoltages, int numCells, float packVoltage, 
+                               float temperature, float current, unsigned long timestamp) {
+    if (!_initialized) return false;
+    
+    File file = SD.open(BMS_DATA_LOG_FILE, FILE_APPEND);
+    if (!file) {
+        Serial.println("Failed to open BMS data log file!");
+        return false;
+    }
+    
+    // If file is new, write header
+    if (file.size() == 0) {
+        file.print("Timestamp_ms,Cell1_V,Cell2_V,Cell3_V,Cell4_V,Cell5_V,Cell6_V,Cell7_V,Cell8_V,");
+        file.println("Pack_Voltage_V,Temperature_C,Current_A");
+    }
+    
+    // Write timestamp
+    file.printf("%lu,", timestamp);
+    
+    // Write all cell voltages
+    for (int i = 0; i < numCells; i++) {
+        file.printf("%.3f", cellVoltages[i]);
+        if (i < numCells - 1) {
+            file.print(",");
+        }
+    }
+    
+    // Write pack voltage, temperature, and current
+    file.printf(",%.3f,%.1f,%.3f\n", packVoltage, temperature, current);
+    
+    file.close();
+    return true;
+}

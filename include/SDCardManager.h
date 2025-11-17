@@ -40,6 +40,12 @@ public:
     bool begin();
     void end();
     
+    // Data Logging
+    bool logSOCData(float soc, float ocv, float temperature, unsigned long timestamp);
+    bool logSOHData(float soh, int cycles, float capacity, unsigned long timestamp);
+    bool logBMSData(float* cellVoltages, int numCells, float packVoltage, 
+                    float temperature, float current, unsigned long timestamp);  // NEW
+
     // SOC Lookup Table Operations
     bool saveSOCLookupTable(const SOCLookupEntry* entries, int numEntries);
     bool loadSOCLookupTable(SOCLookupEntry* entries, int maxEntries, int& numLoaded);
@@ -49,10 +55,6 @@ public:
     bool saveSOHLookupTable(const SOHLookupEntry* entries, int numEntries);
     bool loadSOHLookupTable(SOHLookupEntry* entries, int maxEntries, int& numLoaded);
     float interpolateSOHFromCycles(int cycleCount);
-    
-    // Data Logging
-    bool logSOCData(float soc, float ocv, float temperature, unsigned long timestamp);
-    bool logSOHData(float soh, int cycles, float capacity, unsigned long timestamp);
     
     // Utility Functions
     bool fileExists(const char* path);
