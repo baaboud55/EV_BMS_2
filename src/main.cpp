@@ -103,10 +103,12 @@ unsigned long lastStartupCheckTime = 0;
 unsigned long lastCurrentReadTime = 0;
 unsigned long lastFBvoltageReadTime = 0;
 unsigned long lastWebUpdateTime = 0;
-const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 0; // For GMT+0 (set as needed)
-const int daylightOffset_sec = 0; // Set as needed
 
+// NTP Configuration for Saudi Arabia (GMT+3)
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 10800;      // GMT+3 = 3 * 3600 seconds
+const int daylightOffset_sec = 0;       // Saudi Arabia doesn't use DST
+bool timeIsSynced = false;
 
 // Cumulative capacity tracking
 static float cumulativeAh = 0;
@@ -432,7 +434,10 @@ BMSData getBMSData() {
     }
     lastCapacityUpdate = now;
     data.cumulativeCapacity = cumulativeAh;
-    data.timestamp = millis();
+    
+    // Use real-time epoch timestamp instead of millis()
+    data.timestamp = getEpochTime();
+    
     return data;
 }
 
@@ -562,10 +567,42 @@ void saveStateToSD() {
     }
 }
 
+// Get current epoch time (Unix timestamp in seconds)
 unsigned long getEpochTime() {
     time_t now;
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        // Time not yet synced, return 0
+        return 0;
+    }
     time(&now);
-    return now; // seconds since Jan 1, 1970
+    return (unsigned long)now;
+}
+
+// Wait for time synchronization with NTP server
+void waitForTimeSync() {
+    Serial.print("Waiting for NTP time sync");
+    struct tm timeinfo;
+    int attempts = 0;
+    const int maxAttempts = 20;  // Wait up to 10 seconds
+    
+    while (!getLocalTime(&timeinfo) && attempts < maxAttempts) {
+        Serial.print(".");
+        delay(500);
+        attempts++;
+    }
+    
+    if (getLocalTime(&timeinfo)) {
+        Serial.println(" SUCCESS!");
+        Serial.print("Current time: ");
+        Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+        timeIsSynced = true;
+    } else {
+        Serial.println(" FAILED!");
+        Serial.println("Could not sync time with NTP server");
+        Serial.println("Check WiFi connection and NTP server availability");
+        timeIsSynced = false;
+    }
 }
 
 // ----- Setup -----
@@ -585,7 +622,7 @@ void setup() {
     ledcAttachPin(PWM_PIN, 0);
     ledcWrite(0, 511 - 0);
     pinMode(CURRENT_SENSOR_PIN, INPUT);
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    
     initPID(&currentPID, 20.0, 4.0, 6.0, 0.0, 511.0);
     currentPID.setpoint = CC_TARGET_CURRENT;
     initPID(&voltagePID, 30.0, 5.0, 1.5, 0.0, 511.0);
@@ -624,6 +661,10 @@ void setup() {
         Serial.print("IP address: ");
         Serial.println(WiFi.localIP());
         
+        // Configure and sync time with NTP server (for Saudi Arabia timezone)
+        configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+        waitForTimeSync();
+        
         // Initialize OTA Manager
         if (otaManager.begin("ESP32_BMS", "bms2024")) {
             Serial.println("OTA Manager initialized successfully!");
@@ -636,7 +677,8 @@ void setup() {
     } else {
         Serial.println();
         Serial.println("WiFi connection failed!");
-        Serial.println("OTA updates will not be available.");
+        Serial.println("OTA updates and NTP time sync will not be available.");
+        timeIsSynced = false;
     }
     
     // Setup WebSocket
