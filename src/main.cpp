@@ -27,14 +27,14 @@ bool fbVoltageChanged = false;
 bool currentChanged = false;
 
 // ------ WiFi Configuration ------
-const char* ssid = "Galaxy S21";        // Replace with your WiFi SSID
-const char* password = "77897890 "; // Replace with your WiFi password
+const char* ssid = "Galaxy";        // Replace with your WiFi SSID
+const char* password = "mmmmmmmm"; // Replace with your WiFi password
 
 // ------ Server Objects ------
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-// ------ OTA Manager (declared extern, defined in OTAManager.cpp) ------
+// ------ OTA Manager ------
 extern OTAManager otaManager;
 
 // ------ Function Forward Declarations ------
