@@ -586,9 +586,9 @@ void setup() {
     ledcWrite(0, 511 - 0);
     pinMode(CURRENT_SENSOR_PIN, INPUT);
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    initPID(&currentPID, 50.0, 10.0, 2.0, 150.0, 384.0);
+    initPID(&currentPID, 20.0, 4.0, 6.0, 0.0, 511.0);
     currentPID.setpoint = CC_TARGET_CURRENT;
-    initPID(&voltagePID, 30.0, 5.0, 1.5, 150.0, 384.0);
+    initPID(&voltagePID, 30.0, 5.0, 1.5, 0.0, 511.0);
     voltagePID.setpoint = CV_TARGET_VOLTAGE;
     currentChargeState = CALIBRATING_CURRENT_SENSOR;
     calibrateCurrentSensor();

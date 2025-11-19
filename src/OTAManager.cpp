@@ -3,6 +3,7 @@
  */
 
 #include "OTAManager.h"
+#include <SPIFFS.h>
 
 // Static instance pointer for callbacks
 static OTAManager* _instance = nullptr;
