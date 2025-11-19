@@ -34,8 +34,8 @@ const char* password = "77897890 "; // Replace with your WiFi password
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-// ------ OTA Manager ------
-OTAManager otaManager;
+// ------ OTA Manager (declared extern, defined in OTAManager.cpp) ------
+extern OTAManager otaManager;
 
 // ------ Function Forward Declarations ------
 unsigned long getEpochTime();
