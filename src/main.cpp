@@ -7,6 +7,7 @@
  * - Two-stage PID charging control (CC/CV)
  * - Web-based dashboard via WiFi
  * - WebSocket real-time streaming
+ * - Over-The-Air (OTA) firmware updates
  */
 
 #include <WiFi.h>
@@ -19,6 +20,7 @@
 #include "ChargeController.h"
 #include "SDCardManager.h"
 #include "KalmanFilter.h"
+#include "OTAManager.h"  // OTA firmware update support
 
 // ------ Global Variable Definitions (from BMSConfig.h) ------
 bool fbVoltageChanged = false;
@@ -31,6 +33,9 @@ const char* password = "77897890 "; // Replace with your WiFi password
 // ------ Server Objects ------
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+
+// ------ OTA Manager ------
+OTAManager otaManager;
 
 // ------ Function Forward Declarations ------
 unsigned long getEpochTime();
@@ -591,7 +596,7 @@ void setup() {
 
     if(!SPIFFS.begin(true)) { Serial.println("ERROR: SPIFFS Mount Failed!"); return; }
 
-        // Initialize SD card (ADD AFTER SPIFFS INITIALIZATION)
+    // Initialize SD card
     if (!sdCard.begin()) {
         Serial.println("WARNING: SD Card initialization failed!");
         Serial.println("Continuing without SD card support...");
@@ -602,22 +607,43 @@ void setup() {
         // Load initial state from SD card
         loadInitialState();
     }
+    
+    // Connect to WiFi
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 30) {
         delay(500);
+        Serial.print(".");
         attempts++;
     }
+    
     if (WiFi.status() == WL_CONNECTED) {
+        Serial.println();
+        Serial.println("WiFi connected!");
         Serial.print("IP address: ");
         Serial.println(WiFi.localIP());
+        
+        // Initialize OTA Manager
+        if (otaManager.begin("ESP32_BMS", "bms2024")) {
+            Serial.println("OTA Manager initialized successfully!");
+            Serial.println("You can now update firmware via:");
+            Serial.println("1. PlatformIO OTA upload (see platformio.ini)");
+            Serial.println("2. Web interface at http://" + WiFi.localIP().toString() + "/update");
+        } else {
+            Serial.println("WARNING: OTA Manager initialization failed!");
+        }
     } else {
+        Serial.println();
         Serial.println("WiFi connection failed!");
-        return;
+        Serial.println("OTA updates will not be available.");
     }
+    
+    // Setup WebSocket
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
+    
+    // Setup web routes
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(SPIFFS, "/index.html", "text/html");
     });
@@ -652,16 +678,25 @@ void setup() {
         serializeJson(json, response);
         request->send(200, "application/json", response);
     });
+    
+    // Setup OTA web interface
+    otaManager.setupWebOTA(&server);
+    
     server.onNotFound([](AsyncWebServerRequest *request) {
         request->send(404, "text/plain", "Not Found");
     });
+    
     server.begin();
     Serial.println("HTTP server started");
 }
 
 // ----- Main Loop -----
 void loop() {
+    // Handle OTA updates
+    otaManager.handle();
+    
     unsigned long currentTime = millis();
+    
     if (currentTime - lastBMSReadTime >= BMS_READ_INTERVAL) {
       lastBMSReadTime = currentTime;
       readBMSData();
@@ -677,8 +712,8 @@ void loop() {
       lastFBvoltageReadTime = currentTime;
       readVoltage_FB();
       fbVoltageChanged = true;
-
     }
+    
     if (currentTime - lastStartupCheckTime >= STARTUP_CHECK_INTERVAL) {
       lastStartupCheckTime = currentTime;
       waitForStartupCondition();
@@ -690,7 +725,8 @@ void loop() {
       lastWebUpdateTime = currentTime;
       sendBMSData();
     }
-        // Save state to SD card periodically
+    
+    // Save state to SD card periodically
     if (sdCard.isInitialized()) {
         saveStateToSD();
     }
