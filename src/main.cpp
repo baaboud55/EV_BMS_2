@@ -104,7 +104,7 @@ unsigned long lastCurrentReadTime = 0;
 unsigned long lastFBvoltageReadTime = 0;
 unsigned long lastWebUpdateTime = 0;
 const char* ntpServer = "pool.ntp.org";
-const long gmtOffset_sec = 3 * 3600; // For GMT+3 (set as needed)
+const long gmtOffset_sec = 0; // For GMT+0 (set as needed)
 const int daylightOffset_sec = 0; // Set as needed
 
 
