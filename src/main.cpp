@@ -8,7 +8,6 @@
  * - Web-based dashboard via WiFi
  * - WebSocket real-time streaming
  * - Over-The-Air (OTA) firmware updates
- * - Unified timing system (all in milliseconds)
  */
 
 #include <WiFi.h>
@@ -98,7 +97,7 @@ bool precharge_state = false;
 PIDController currentPID;  // For CC mode
 PIDController voltagePID;  // For CV mode
 
-// Timing variables (ALL IN MILLISECONDS)
+// Timing variables
 unsigned long lastBMSReadTime = 0;
 unsigned long lastStartupCheckTime = 0;
 unsigned long lastCurrentReadTime = 0;
@@ -107,7 +106,7 @@ unsigned long lastWebUpdateTime = 0;
 
 // Cumulative capacity tracking
 static float cumulativeAh = 0;
-static unsigned long lastCapacityUpdate = 0;  // milliseconds
+static unsigned long lastCapacityUpdate = 0;
 
 // Simple timestamp counter (starts from 0 at boot)
 static unsigned long timestampCounter = 0;
@@ -223,7 +222,7 @@ void preCharging() {
       digitalWrite(PRECHARGE_RELAY, HIGH);
       precharge_state = true;
       return;
-    }
+    } 
     if (precharge_state) {
       digitalWrite(PRECHARGE_RELAY, HIGH);
       precharge_state = true;
@@ -354,26 +353,24 @@ float calculateSOC() {
     }
     
     // Use Kalman filter for SOC estimation
-    unsigned long currentTime_ms = millis();  // UNIFIED: Always in ms
-    static unsigned long lastUpdateTime_ms = 0;
+    unsigned long currentTime = millis();
+    static unsigned long lastUpdateTime = 0;
     
-    if (lastUpdateTime_ms == 0) {
-        lastUpdateTime_ms = currentTime_ms;
+    if (lastUpdateTime == 0) {
+        lastUpdateTime = currentTime;
         return estimatedSOC;
     }
     
-    // Calculate time delta in ms, convert to seconds only for Kalman filter
-    unsigned long dt_ms = currentTime_ms - lastUpdateTime_ms;
-    float dt_seconds = dt_ms * MS_TO_SECONDS;  // UNIFIED: Use conversion constant
-    lastUpdateTime_ms = currentTime_ms;
+    float dt = (currentTime - lastUpdateTime) / 1000.0;  // Convert to seconds
+    lastUpdateTime = currentTime;
     
     // Update Kalman filter
-    estimatedSOC = kfSOC.update(totalPackVoltage, measuredCurrent, avgTemp, dt_seconds);
+    estimatedSOC = kfSOC.update(totalPackVoltage, measuredCurrent, avgTemp, dt);
     
     return estimatedSOC;
 }
 
-float calculateSOH() {
+float calculateSOH() { 
     // Update SOH based on capacity measurement (simplified)
     // In real implementation, measure actual capacity during full charge/discharge
     float measuredCapacity = BATTERY_CAPACITY * (estimatedSOH / 100.0);  // Placeholder
@@ -421,22 +418,17 @@ BMSData getBMSData() {
     data.overvoltage = (maxCellVoltage > MAX_CELL_VOLTAGE);
     data.undervoltage = (minCellVoltage < MIN_CELL_VOLTAGE);
     data.overcurrent = (abs(measuredCurrent) > MAX_CURRENT);
-    
     if (abs(data.current) > 0.1) {
         data.remainingRuntime = (data.soc / 100.0) * BATTERY_CAPACITY / abs(data.current);
     } else {
         data.remainingRuntime = 999.9;
     }
-    
-    // UNIFIED: All timing in milliseconds, convert to hours only for capacity calculation
-    unsigned long now_ms = millis();
+    unsigned long now = millis();
     if (lastCapacityUpdate > 0) {
-        unsigned long dt_ms = now_ms - lastCapacityUpdate;
-        float dt_hours = dt_ms * MS_TO_HOURS;  // UNIFIED: Use conversion constant
-        cumulativeAh += abs(data.current) * dt_hours;
+        float deltaTime = (now - lastCapacityUpdate) / 3600000.0;
+        cumulativeAh += (data.current) * deltaTime;
     }
-    lastCapacityUpdate = now_ms;
-    
+    lastCapacityUpdate = now;
     data.cumulativeCapacity = cumulativeAh;
     data.timestamp = getEpochTime();
     return data;
@@ -550,19 +542,19 @@ void loadInitialState() {
 
 // Save current SOC/SOH to SD card periodically
 void saveStateToSD() {
-    unsigned long currentTime_ms = millis();  // UNIFIED: Always in ms
+    unsigned long currentTime = millis();
     
-    if (currentTime_ms - lastSDSaveTime >= SD_SAVE_INTERVAL) {
-        lastSDSaveTime = currentTime_ms;
+    if (currentTime - lastSDSaveTime >= SD_SAVE_INTERVAL) {
+        lastSDSaveTime = currentTime;
         
         // Log SOC data
-        sdCard.logSOCData(estimatedSOC, totalPackVoltage, avgTemp, currentTime_ms);
+        sdCard.logSOCData(estimatedSOC, totalPackVoltage, avgTemp, currentTime);
         
         // Log SOH data
-        sdCard.logSOHData(estimatedSOH, totalCycles, BATTERY_CAPACITY * (estimatedSOH / 100.0), currentTime_ms);
+        sdCard.logSOHData(estimatedSOH, totalCycles, BATTERY_CAPACITY * (estimatedSOH / 100.0), currentTime);
         
-        // Log complete BMS data
-        sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, currentTime_ms);
+        // Log complete BMS data (NEW)
+        sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, currentTime);
         
         Serial.println("State saved to SD card");
     }
@@ -695,7 +687,6 @@ void loop() {
     // Handle OTA updates
     otaManager.handle();
     
-    // UNIFIED: All timing checks use milliseconds
     unsigned long currentTime = millis();
     
     if (currentTime - lastBMSReadTime >= BMS_READ_INTERVAL) {
