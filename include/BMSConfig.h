@@ -61,11 +61,11 @@ const float INR1 = 98100.0;             // Input resistor 1
 const float INR2 = 9950.0;              // Input resistor 2
 
 // ==================== TIMING INTERVALS (ALL IN MILLISECONDS) ====================
-const unsigned long BMS_READ_INTERVAL = 2000;       // 2 seconds
-const unsigned long STARTUP_CHECK_INTERVAL = 2000;  // 2 seconds
+const unsigned long BMS_READ_INTERVAL = 1000;       // 1.0 seconds
+const unsigned long STARTUP_CHECK_INTERVAL = 1000;  // 1.0 seconds
 const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
 const unsigned long FB_VOLTAGE_READ_INTERVAL = 100; // 100ms
-const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
+const unsigned long WEB_UPDATE_INTERVAL = 1000;     // 1.0 second for web GUI
 const unsigned long SD_SAVE_INTERVAL = 5000;        // Save to SD every 5 seconds
 
 // ==================== TIME CONVERSION CONSTANTS ====================
@@ -88,6 +88,16 @@ const int BMS_TX_PIN = 16;              // BMS TX pin
 const float KF_PROCESS_NOISE_COV = 1e-5;    // Process noise covariance Q
 const float KF_MEASUREMENT_NOISE_COV = 1e-2; // Measurement noise covariance R
 const float KF_INITIAL_ERROR_COV = 1.0;      // Initial error covariance P
+
+// ==================== SOC/SOH ESTIMATION PARAMETERS ====================
+// SOC Estimator Configuration
+const float SOC_COULOMB_COUNTING_EFFICIENCY = 0.99;  // Coulomb counting efficiency (99%)
+const unsigned long SOC_UPDATE_INTERVAL = 1000;      // Update SOC every 1 second (1000ms)
+const unsigned long OCV_CALIBRATION_REST_TIME = 30000; // Calibrate from OCV after 30s rest
+
+// SOH Estimator Configuration (placeholder for future)
+const unsigned long SOH_UPDATE_INTERVAL = 60000;     // Update SOH every 60 seconds
+
 
 // ==================== SD CARD FILE PATHS (NEW) ====================
 static const char* SOC_LOOKUP_FILE = "/soc_lookup.csv";
