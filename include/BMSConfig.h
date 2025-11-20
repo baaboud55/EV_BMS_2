@@ -60,13 +60,21 @@ const float FBR2 = 10040.0;             // Feedback resistor 2
 const float INR1 = 98100.0;             // Input resistor 1
 const float INR2 = 9950.0;              // Input resistor 2
 
-// ==================== TIMING INTERVALS ====================
+// ==================== TIMING INTERVALS (ALL IN MILLISECONDS) ====================
 const unsigned long BMS_READ_INTERVAL = 2000;       // 2 seconds
 const unsigned long STARTUP_CHECK_INTERVAL = 2000;  // 2 seconds
 const unsigned long CURRENT_READ_INTERVAL = 100;    // 100ms
 const unsigned long FB_VOLTAGE_READ_INTERVAL = 100; // 100ms
 const unsigned long WEB_UPDATE_INTERVAL = 2000;     // 2 seconds for web GUI
-const unsigned long SD_SAVE_INTERVAL = 5000;       // NEW: Save to SD every 60 seconds
+const unsigned long SD_SAVE_INTERVAL = 5000;        // Save to SD every 5 seconds
+
+// ==================== TIME CONVERSION CONSTANTS ====================
+// Use these for converting milliseconds to other units
+const float MS_TO_SECONDS = 0.001f;           // Multiply ms by this to get seconds
+const float MS_TO_HOURS = 2.77778e-7f;        // Multiply ms by this to get hours (1/3600000)
+const unsigned long SECONDS_TO_MS = 1000UL;   // Multiply seconds by this to get ms
+const unsigned long HOURS_TO_MS = 3600000UL;  // Multiply hours by this to get ms
+
 extern bool fbVoltageChanged;
 extern bool currentChanged;
 
