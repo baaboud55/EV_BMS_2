@@ -221,7 +221,7 @@ void preCharging() {
       digitalWrite(PRECHARGE_RELAY, HIGH);
       precharge_state = true;
       return;
-    } 
+    }
     if (precharge_state) {
       digitalWrite(PRECHARGE_RELAY, HIGH);
       precharge_state = true;
@@ -372,10 +372,6 @@ float calculateSOC() {
 
 // Replace calculateSOH() function
 float calculateSOH() {
-    if (!lookupTablesInitialized) {
-        return 95.0;  // Default placeholder
-    }
-    
     // Update SOH based on capacity measurement (simplified)
     // In real implementation, measure actual capacity during full charge/discharge
     float measuredCapacity = BATTERY_CAPACITY * (estimatedSOH / 100.0);  // Placeholder
@@ -431,7 +427,7 @@ BMSData getBMSData() {
     unsigned long now = millis();
     if (lastCapacityUpdate > 0) {
         float deltaTime = (now - lastCapacityUpdate) / 3600000.0;
-        cumulativeAh += abs(data.current) * deltaTime;
+        cumulativeAh += (data.current) * deltaTime;
     }
     lastCapacityUpdate = now;
     data.cumulativeCapacity = cumulativeAh;

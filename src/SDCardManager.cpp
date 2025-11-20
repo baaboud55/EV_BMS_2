@@ -246,11 +246,6 @@ float SDCardManager::interpolateSOHFromCycles(int cycleCount) {
     SOHLookupEntry entries[20];
     int numLoaded = 0;
     
-    if (!loadSOHLookupTable(entries, 20, numLoaded) || numLoaded == 0) {
-        // Fallback: assume 95% SOH
-        return 95.0;
-    }
-    
     // Find cycle count in table and interpolate
     for (int i = 0; i < numLoaded - 1; i++) {
         if (cycleCount >= entries[i].cycle_count && 
