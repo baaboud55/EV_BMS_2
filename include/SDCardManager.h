@@ -61,11 +61,6 @@ public:
     void listFiles();
     bool isInitialized() { return _initialized; }
     
-    // Time persistence functions
-    bool saveLastTimestamp(unsigned long timestamp);
-    unsigned long loadLastTimestamp();
-
-
 private:
     bool _initialized;
     SPIClass _spi;

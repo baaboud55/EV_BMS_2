@@ -126,6 +126,13 @@ class AdvancedBMSMonitor {
                 suggestedMin: 0,
                 suggestedMax: 100
             },
+            runtimeChart: {
+                label: 'Remaining Runtime (h)',
+                borderColor: '#1abc9c',
+                backgroundColor: 'rgba(26, 188, 156, 0.1)',
+                yAxisLabel: 'Runtime (h)',
+                suggestedMin: 0
+            }
         };
 
         Object.keys(chartConfigs).forEach(chartId => {
@@ -164,14 +171,11 @@ class AdvancedBMSMonitor {
                         x: {
                             type: 'time',
                             time: {
-                                unit: 'second',
-                                stepSize: 10,
                                 displayFormats: {
                                     second: 'HH:mm:ss',
                                     minute: 'HH:mm',
                                     hour: 'HH:mm'
-                                },
-                                tooltipFormat: 'HH:mm:ss'
+                                }
                             },
                             grid: {
                                 color: 'rgba(0, 0, 0, 0.1)'
@@ -244,14 +248,11 @@ class AdvancedBMSMonitor {
                     x: {
                         type: 'time',
                         time: {
-                            unit: 'second',
-                            stepSize: 10,
                             displayFormats: {
                                 second: 'HH:mm:ss',
                                 minute: 'HH:mm',
                                 hour: 'HH:mm'
-                            },
-                            tooltipFormat: 'HH:mm:ss'
+                            }
                         },
                         grid: {
                             color: 'rgba(0, 0, 0, 0.1)'
@@ -291,8 +292,18 @@ class AdvancedBMSMonitor {
             batteryStateElement.className = 'battery-state-value ' + data.batteryState.toLowerCase();
         }
 
+        // Update remaining runtime
+        const runtime = data.remainingRuntime;
+        if (runtime !== undefined) {
+            if (runtime > 100) {
+                document.getElementById('remainingRuntime').textContent = '∞';
+            } else {
+                document.getElementById('remainingRuntime').textContent = runtime.toFixed(1);
+            }
+        }
+
         // Update cumulative capacity
-        document.getElementById('cumulativeCapacity').textContent = data.cumulativeCapacity?.toFixed(2) || '--';
+        document.getElementById('cumulativeCapacity').textContent = data.cumulativeCapacity?.toFixed(1) || '--';
 
         // Update progress bars
         if (data.soc !== undefined) {
@@ -349,9 +360,7 @@ class AdvancedBMSMonitor {
     }
 
     updateCharts(data) {
-        // data.timestamp is already in seconds (Unix epoch), convert to milliseconds for JavaScript Date
-        const timestamp = new Date(data.timestamp * 1000);
-
+        const timestamp = new Date((data.timestamp || Date.now() / 1000) * 1000);
 
         // Update cell voltages chart
         if (this.charts.cellVoltagesChart && data.cellVoltages && Array.isArray(data.cellVoltages)) {
@@ -380,6 +389,7 @@ class AdvancedBMSMonitor {
             currentChart: data.current,
             socChart: data.soc,
             sohChart: data.soh,
+            runtimeChart: data.remainingRuntime > 100 ? 100 : data.remainingRuntime
         };
 
         Object.keys(chartData).forEach(chartId => {
