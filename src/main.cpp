@@ -19,6 +19,7 @@
 #include "PIDController.h"
 #include "ChargeController.h"
 #include "SDCardManager.h"
+#include "time.h"
 
 /*
 #include "KalmanFilter.h"
@@ -127,12 +128,11 @@ unsigned long lastCurrentReadTime = 0;
 unsigned long lastFBvoltageReadTime = 0;
 unsigned long lastWebUpdateTime = 0;
 
-// Cumulative capacity tracking
-static float cumulativeAh = 0;
-static unsigned long lastCapacityUpdate = 0;
-
-// Simple timestamp counter (starts from 0 at boot)
-static unsigned long timestampCounter = 0;
+// NTP Time Management for Saudi Arabia (UTC+3)
+static bool timeInitialized = false;
+static unsigned long lastNTPSync = 0;
+const long gmtOffset_sec = 3 * 3600;     // Saudi Arabia is UTC+3
+const int daylightOffset_sec = 0;        // No daylight saving time
 
 // ----- BMS Functions -----
 bool parseAllData(String data, float cells[], float temps[], int balance[]) {
@@ -444,9 +444,134 @@ void calibrateSOCFromOCV() {
                 socEstimator.getSOC(), avgCellVoltage, avgTemperature);
 }
 
-// Get simple timestamp (counter starting from 0)
+// Initialize NTP time synchronization for Saudi Arabia
+void initializeNTPTime() {
+    Serial.println("\n========================================");
+    Serial.println("Initializing NTP Time Sync (Saudi Arabia UTC+3)...");
+    Serial.println("========================================");
+    
+    // Configure NTP with Saudi Arabia timezone
+    configTime(gmtOffset_sec, daylightOffset_sec, 
+               "time.google.com", 
+               "pool.ntp.org",
+               "time.nist.gov");
+    
+    // Wait for time to be synchronized (timeout after 10 seconds)
+    Serial.print("Waiting for NTP time sync");
+    struct tm timeinfo;
+    int retries = 0;
+    
+    while (!getLocalTime(&timeinfo) && retries < 20) {
+        Serial.print(".");
+        delay(500);
+        retries++;
+    }
+    
+    if (retries < 20) {
+        timeInitialized = true;
+        lastNTPSync = millis();
+        
+        Serial.println(" SUCCESS!");
+        Serial.println("========================================");
+        Serial.printf("📅 Current Date: %s, %02d %s %04d\n",
+                     (timeinfo.tm_wday == 0) ? "Sunday" :
+                     (timeinfo.tm_wday == 1) ? "Monday" :
+                     (timeinfo.tm_wday == 2) ? "Tuesday" :
+                     (timeinfo.tm_wday == 3) ? "Wednesday" :
+                     (timeinfo.tm_wday == 4) ? "Thursday" :
+                     (timeinfo.tm_wday == 5) ? "Friday" : "Saturday",
+                     timeinfo.tm_mday,
+                     (timeinfo.tm_mon == 0) ? "Jan" :
+                     (timeinfo.tm_mon == 1) ? "Feb" :
+                     (timeinfo.tm_mon == 2) ? "Mar" :
+                     (timeinfo.tm_mon == 3) ? "Apr" :
+                     (timeinfo.tm_mon == 4) ? "May" :
+                     (timeinfo.tm_mon == 5) ? "Jun" :
+                     (timeinfo.tm_mon == 6) ? "Jul" :
+                     (timeinfo.tm_mon == 7) ? "Aug" :
+                     (timeinfo.tm_mon == 8) ? "Sep" :
+                     (timeinfo.tm_mon == 9) ? "Oct" :
+                     (timeinfo.tm_mon == 10) ? "Nov" : "Dec",
+                     timeinfo.tm_year + 1900);
+        Serial.printf("🕐 Current Time: %02d:%02d:%02d (Saudi Arabia)\n",
+                     timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+        Serial.printf("📊 Unix Timestamp: %lu\n", (unsigned long)time(NULL));
+        Serial.println("========================================\n");
+        
+        // Save initial time to SD card
+        if (sdCard.isInitialized()) {
+            sdCard.saveLastTimestamp((unsigned long)time(NULL));
+            Serial.println("✓ Time saved to SD card for backup");
+        }
+    } else {
+        Serial.println(" TIMEOUT!");
+        Serial.println("========================================");
+        Serial.println("⚠ NTP sync failed. Trying SD card backup...");
+        
+        // Try to load last known time from SD card
+        if (sdCard.isInitialized()) {
+            unsigned long savedTime = sdCard.loadLastTimestamp();
+            if (savedTime > 1700000000) {  // Sanity check (after year 2023)
+                // Set system time from SD card backup
+                struct timeval tv;
+                tv.tv_sec = savedTime;
+                tv.tv_usec = 0;
+                settimeofday(&tv, NULL);
+                
+                timeInitialized = true;
+                Serial.printf("✓ Time restored from SD card: %lu\n", savedTime);
+                Serial.println("⚠ Time will drift until NTP sync succeeds");
+            } else {
+                Serial.println("✗ No valid backup time found");
+            }
+        }
+        Serial.println("========================================\n");
+    }
+}
+
+// Periodic NTP resync (every 6 hours)
+void resyncNTPTime() {
+    if (!timeInitialized) return;
+    
+    unsigned long currentMillis = millis();
+    
+    // Resync every 6 hours
+    if (currentMillis - lastNTPSync >= 6UL * 3600UL * 1000UL) {
+        Serial.println("\n⏰ Resyncing NTP time (6 hour interval)...");
+        
+        struct tm timeinfo;
+        if (getLocalTime(&timeinfo)) {
+            lastNTPSync = currentMillis;
+            
+            Serial.printf("✓ Time resynced: %02d:%02d:%02d %02d/%02d/%04d\n",
+                         timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec,
+                         timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+            
+            // Save to SD card
+            if (sdCard.isInitialized()) {
+                sdCard.saveLastTimestamp((unsigned long)time(NULL));
+            }
+        } else {
+            Serial.println("⚠ Resync failed, continuing with internal clock");
+        }
+    }
+    
+    // Save time to SD card every 5 minutes for backup
+    static unsigned long lastTimeSave = 0;
+    if (sdCard.isInitialized() && (currentMillis - lastTimeSave >= 300000)) {
+        lastTimeSave = currentMillis;
+        sdCard.saveLastTimestamp((unsigned long)time(NULL));
+    }
+}
+
+// Get current Unix epoch time in seconds (Saudi Arabia time)
 unsigned long getEpochTime() {
-    return timestampCounter++;
+    if (timeInitialized) {
+        return (unsigned long)time(NULL);  // Return actual Unix timestamp
+    } else {
+        // Fallback: return millis as seconds (until NTP sync)
+        return millis() / 1000;
+    }
 }
 
 // ----- GUI Packager -----
@@ -489,18 +614,18 @@ BMSData getBMSData() {
     data.overvoltage = (maxCellVoltage > MAX_CELL_VOLTAGE);
     data.undervoltage = (minCellVoltage < MIN_CELL_VOLTAGE);
     data.overcurrent = (abs(measuredCurrent) > MAX_CURRENT);
+
+    /*
+    // Get Remaining runtime (in hours)
     if (abs(data.current) > 0.1) {
         data.remainingRuntime = (data.soc / 100.0) * BATTERY_CAPACITY / abs(data.current);
     } else {
         data.remainingRuntime = 999.9;
     }
-    unsigned long now = millis();
-    if (lastCapacityUpdate > 0) {
-        float deltaTime = (now - lastCapacityUpdate) / 3600000.0;
-        cumulativeAh += (data.current) * deltaTime;
-    }
-    lastCapacityUpdate = now;
-    data.cumulativeCapacity = cumulativeAh;
+    */
+
+    // Get cumulative capacity directly from SOC estimator
+    data.cumulativeCapacity = socEstimator.getCumulativeAh();
     data.timestamp = getEpochTime();
     return data;
 }
@@ -524,7 +649,7 @@ void sendBMSData() {
     json["overvoltage"] = currentBMS.overvoltage;
     json["undervoltage"] = currentBMS.undervoltage;
     json["overcurrent"] = currentBMS.overcurrent;
-    json["remainingRuntime"] = currentBMS.remainingRuntime;
+//    json["remainingRuntime"] = currentBMS.remainingRuntime;
     json["cumulativeCapacity"] = currentBMS.cumulativeCapacity;
     json["timestamp"] = currentBMS.timestamp;
     String jsonString;
@@ -739,6 +864,7 @@ void setup() {
         Serial.println("WiFi connected!");
         Serial.print("IP address: ");
         Serial.println(WiFi.localIP());
+        initializeNTPTime();              // Initialize NTP time synchronization
         
         // Initialize OTA Manager
         if (otaManager.begin("ESP32_BMS", "bms2024")) {
@@ -787,7 +913,7 @@ void setup() {
         json["overvoltage"] = data.overvoltage;
         json["undervoltage"] = data.undervoltage;
         json["overcurrent"] = data.overcurrent;
-        json["remainingRuntime"] = data.remainingRuntime;
+//        json["remainingRuntime"] = data.remainingRuntime;
         json["cumulativeCapacity"] = data.cumulativeCapacity;
         json["timestamp"] = data.timestamp;
         String response;
@@ -810,7 +936,8 @@ void setup() {
 void loop() {
     // Handle OTA updates
     otaManager.handle();
-    
+    resyncNTPTime();          // Keep time synchronized
+
     unsigned long currentTime = millis();
     
     if (currentTime - lastBMSReadTime >= BMS_READ_INTERVAL) {

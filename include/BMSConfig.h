@@ -107,4 +107,12 @@ static const char* SOH_LOG_FILE = "/soh_log.csv";
 static const char* BMS_DATA_LOG_FILE = "/bms_data_log.csv";  // NEW: Complete BMS data log
 
 
+// NTP Time Configuration (Saudi Arabia - Arabia Standard Time)
+#define NTP_SERVER1 "sa.pool.ntp.org"    // Saudi Arabia NTP pool
+#define NTP_SERVER2 "asia.pool.ntp.org"  // Asia region NTP pool
+#define GMT_OFFSET_SEC 10800        // GMT+3 (Saudi Arabia) = 3 hours * 3600 seconds
+#define DAYLIGHT_OFFSET_SEC 0       // Saudi Arabia does NOT use daylight saving time
+#define TIME_SYNC_INTERVAL 3600000  // Sync with NTP every 1 hour (milliseconds)
+
+
 #endif // BMS_CONFIG_H

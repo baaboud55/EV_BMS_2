@@ -419,3 +419,40 @@ bool SDCardManager::logBMSData(float* cellVoltages, int numCells, float packVolt
     file.close();
     return true;
 }
+
+bool SDCardManager::saveLastTimestamp(unsigned long timestamp) {
+    if (!_initialized) return false;
+    
+    File file = SD.open("/last_time.txt", FILE_WRITE);
+    if (!file) {
+        Serial.println("Failed to save timestamp!");
+        return false;
+    }
+    
+    file.println(timestamp);
+    file.close();
+    Serial.printf("Saved timestamp: %lu\n", timestamp);
+    return true;
+}
+
+unsigned long SDCardManager::loadLastTimestamp() {
+    if (!_initialized) return 0;
+    
+    if (!SD.exists("/last_time.txt")) {
+        Serial.println("No saved timestamp found, starting from 0");
+        return 0;
+    }
+    
+    File file = SD.open("/last_time.txt", FILE_READ);
+    if (!file) {
+        Serial.println("Failed to load timestamp!");
+        return 0;
+    }
+    
+    String line = readLine(file);
+    unsigned long timestamp = line.toInt();
+    file.close();
+    
+    Serial.printf("Loaded timestamp: %lu\n", timestamp);
+    return timestamp;
+}
