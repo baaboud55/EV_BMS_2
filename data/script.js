@@ -6,6 +6,9 @@ class AdvancedBMSMonitor {
         this.maxDataPoints = 50;
         this.reconnectInterval = 5000;
         this.isConnected = false;
+        // Stale data detection
+        this.lastMessageTime = null;
+        this.staleDataTimeout = 2000; // 2 seconds without data => disconnected
 
         // Cell voltage colors (8 different colors)
         this.cellColors = [
@@ -20,6 +23,24 @@ class AdvancedBMSMonitor {
         this.setupWebSocket();
         this.setupCharts();
         this.setupEventListeners();
+
+        // Watchdog interval to detect stale data (no incoming messages)
+        setInterval(() => {
+            if (this.lastMessageTime) {
+                const elapsed = Date.now() - this.lastMessageTime;
+                if (elapsed > this.staleDataTimeout) {
+                    if (this.isConnected) {
+                        console.warn('Data timeout >2s. Marking as disconnected.');
+                        // Mark disconnected and close socket to trigger reconnect
+                        this.isConnected = false;
+                        this.updateConnectionStatus(false);
+                        if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                            try { this.websocket.close(); } catch (e) { /* ignore */ }
+                        }
+                    }
+                }
+            }
+        }, 500); // check twice per second
 
         setTimeout(() => {
             if (!this.isConnected) {
@@ -44,6 +65,13 @@ class AdvancedBMSMonitor {
             this.websocket.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    // Timestamp receipt of data
+                    this.lastMessageTime = Date.now();
+                    // If previously disconnected due to stale data, restore status
+                    if (!this.isConnected && this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+                        this.isConnected = true;
+                        this.updateConnectionStatus(true);
+                    }
                     this.updateDisplay(data);
                     this.updateCharts(data);
                 } catch (error) {
@@ -125,13 +153,6 @@ class AdvancedBMSMonitor {
                 yAxisLabel: 'SOH (%)',
                 suggestedMin: 0,
                 suggestedMax: 100
-            },
-            runtimeChart: {
-                label: 'Remaining Runtime (h)',
-                borderColor: '#1abc9c',
-                backgroundColor: 'rgba(26, 188, 156, 0.1)',
-                yAxisLabel: 'Runtime (h)',
-                suggestedMin: 0
             }
         };
 
@@ -292,15 +313,7 @@ class AdvancedBMSMonitor {
             batteryStateElement.className = 'battery-state-value ' + data.batteryState.toLowerCase();
         }
 
-        // Update remaining runtime
-        const runtime = data.remainingRuntime;
-        if (runtime !== undefined) {
-            if (runtime > 100) {
-                document.getElementById('remainingRuntime').textContent = '∞';
-            } else {
-                document.getElementById('remainingRuntime').textContent = runtime.toFixed(1);
-            }
-        }
+        // Removed remaining runtime display
 
         // Update cumulative capacity
         document.getElementById('cumulativeCapacity').textContent = data.cumulativeCapacity?.toFixed(1) || '--';
@@ -388,8 +401,7 @@ class AdvancedBMSMonitor {
             voltageChart: data.packVoltage,
             currentChart: data.current,
             socChart: data.soc,
-            sohChart: data.soh,
-            runtimeChart: data.remainingRuntime > 100 ? 100 : data.remainingRuntime
+            sohChart: data.soh
         };
 
         Object.keys(chartData).forEach(chartId => {
