@@ -28,30 +28,27 @@ void KalmanFilterSOC::initialize(float initialSOC, float processNoise, float mea
 }
 
 float KalmanFilterSOC::update(float voltage, float current, float temperature, float dt) {
-    // ===== PREDICTION STEP =====
-    // Predict SOC based on current integration (Coulomb counting)
+    // 1. ALWAYS Predict (Coulomb Counting)
     float predictedSOC = predictSOC(current, dt);
-    
-    // Predict error covariance
     float predictedErrorCov = _errorCovariance + _processNoise;
+
+    // 2. CONDITIONALLY Update (Measurement)
+    // Only trust voltage if current is low (e.g., < 2 Amps)
+    if (abs(current) < 2.0) { 
+        float measuredSOC = estimateSOCFromOCV(voltage, temperature);
+        
+        float kalmanGain = predictedErrorCov / (predictedErrorCov + _measurementNoise);
+        _soc = predictedSOC + kalmanGain * (measuredSOC - predictedSOC);
+        _errorCovariance = (1.0 - kalmanGain) * predictedErrorCov;
+    } else {
+        // Under high load, trust the prediction 100%
+        _soc = predictedSOC;
+        _errorCovariance = predictedErrorCov;
+    }
     
-    // ===== UPDATE STEP =====
-    // Calculate measurement (estimate SOC from voltage)
-    float measuredSOC = estimateSOCFromOCV(voltage, temperature);
-    
-    // Calculate Kalman gain
-    float kalmanGain = predictedErrorCov / (predictedErrorCov + _measurementNoise);
-    
-    // Update SOC estimate
-    _soc = predictedSOC + kalmanGain * (measuredSOC - predictedSOC);
     _soc = constrain(_soc, 0.0, 100.0);
-    
-    // Update error covariance
-    _errorCovariance = (1.0 - kalmanGain) * predictedErrorCov;
-    
     return _soc;
 }
-
 float KalmanFilterSOC::predictSOC(float current, float dt) {
     // Coulomb counting: SOC(t+1) = SOC(t) - (I * dt / Q_nom) * 100
     // Positive current = discharge, negative current = charge

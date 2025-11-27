@@ -3,7 +3,7 @@ class AdvancedBMSMonitor {
     constructor() {
         this.websocket = null;
         this.charts = {};
-        this.maxDataPoints = 50;
+        this.maxDataPoints = 300;
         this.reconnectInterval = 5000;
         this.isConnected = false;
         // Stale data detection
@@ -51,8 +51,11 @@ class AdvancedBMSMonitor {
 
     setupWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Change this line:
         const wsUrl = `${protocol}//${window.location.host}/ws`;
-
+        // dont forget to uncomment lines of native server in platformio.ini.
+        // To this (for testing only):
+        // const wsUrl = `ws://localhost:8765`;
         try {
             this.websocket = new WebSocket(wsUrl);
 
@@ -60,6 +63,9 @@ class AdvancedBMSMonitor {
                 console.log('WebSocket connected');
                 this.isConnected = true;
                 this.updateConnectionStatus(true);
+                const now = Math.floor(Date.now() / 1000);
+                this.websocket.send("TIME:" + now);
+                console.log("Synced time with BMS:", now);
             };
 
             this.websocket.onmessage = (event) => {
@@ -316,7 +322,13 @@ class AdvancedBMSMonitor {
         // Removed remaining runtime display
 
         // Update cumulative capacity
-        document.getElementById('cumulativeCapacity').textContent = data.cumulativeCapacity?.toFixed(1) || '--';
+        // Update cumulative capacity (Convert Ah -> mAh)
+        if (data.cumulativeCapacity !== undefined) {
+            // Multiply by 1000 and show 0 decimal places (e.g., "5255")
+            document.getElementById('cumulativeCapacity').textContent = (data.cumulativeCapacity * 1000).toFixed(0);
+        } else {
+            document.getElementById('cumulativeCapacity').textContent = '--';
+        }
 
         // Update progress bars
         if (data.soc !== undefined) {
@@ -373,7 +385,8 @@ class AdvancedBMSMonitor {
     }
 
     updateCharts(data) {
-        const timestamp = new Date((data.timestamp || Date.now() / 1000) * 1000);
+        // NEW (Correct): Uses the browser's current clock
+        const timestamp = new Date();
 
         // Update cell voltages chart
         if (this.charts.cellVoltagesChart && data.cellVoltages && Array.isArray(data.cellVoltages)) {

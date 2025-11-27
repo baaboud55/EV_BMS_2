@@ -1,61 +1,21 @@
-/*
- * ChargeController.h
- * 
- * Charging state machine and control logic for BMS
- */
-
 #ifndef CHARGE_CONTROLLER_H
 #define CHARGE_CONTROLLER_H
 
-// ==================== CHARGING STATES ====================
-enum ChargeState {
-  IDLE,
-  CALIBRATING_CURRENT_SENSOR,
-  WAITING_FOR_CONDITIONS,
-  CHARGING_CC,          // Constant Current mode
-  CHARGING_CV,          // Constant Voltage mode
-  BALANCING,
-  COMPLETE,
-  ERROR,
-  DISCHARGING
+// ==================== BMS OPERATING STATES ====================
+enum BMSState {
+  STATE_STARTUP,
+  STATE_IDLE,           // Switches Open, monitoring
+  STATE_PRECHARGING,    // Resistor engaged, waiting for caps to fill
+  STATE_DISCHARGING,    // Load Enabled (Driving)
+  STATE_CHARGING,       // Charger Enabled (Charging)
+  STATE_BALANCING,      // Passive balancing active
+  STATE_FAULT           // Error condition (Over/Under volt/temp)
 };
 
-// ==================== GLOBAL CHARGE STATE ====================
-extern ChargeState currentChargeState;
-extern bool precharge_state;
-extern unsigned long S_time;
-extern unsigned long E_time;
+// Global State Variable
+extern BMSState currentBMSState;
 
-// ==================== FUNCTION DECLARATIONS ====================
-
-/*
- * Execute charging state machine
- */
-void executeChargeControl();
-
-/*
- * Perform Constant Current (CC) charging
- */
-void performCCCharging();
-
-/*
- * Perform Constant Voltage (CV) charging
- */
-void performCVCharging();
-
-/*
- * Stop charging and disable charger
- */
-void stopCharging();
-
-/*
- * Handle precharge sequence
- */
-void preCharging();
-
-/*
- * Check if startup conditions are met for charging
- */
-void waitForStartupCondition();
+// Function Declarations
+void updateBMSStateMachine();
 
 #endif // CHARGE_CONTROLLER_H

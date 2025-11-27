@@ -16,13 +16,13 @@
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
 #include "BMSConfig.h"
-#include "PIDController.h"
+//#include "PIDController.h"
 #include "ChargeController.h"
 #include "SDCardManager.h"
 
-/*
+
 #include "KalmanFilter.h"
-*/
+
 
 #include "OTAManager.h"  // OTA firmware update support
 #include "SOCEstimator.h"
@@ -34,8 +34,8 @@ bool currentChanged = false;
 bool initialocv = false;
 
 // ------ WiFi Configuration ------
-const char* ssid = "Galaxy";        // Replace with your WiFi SSID
-const char* password = "mmmmmmmm"; // Replace with your WiFi password
+const char* ssid = "Galaxy S21+";        // Replace with your WiFi SSID
+const char* password = "77897890"; // Replace with your WiFi password
 
 // ------ Server Objects ------
 AsyncWebServer server(80);
@@ -46,7 +46,9 @@ extern OTAManager otaManager;
 
 // ------ Function Forward Declarations ------
 unsigned long getEpochTime();
-
+// Time Synchronization
+unsigned long systemTimeOffset = 0; // Difference between Real Time and millis()
+bool timeSynced = false;
 // ------ BMS Data Structure ------
 struct BMSData {
     float packVoltage;
@@ -96,8 +98,10 @@ bool lookupTablesInitialized = false;
 SDCardManager sdCard;
 
 // SOC/SOH Estimators (new modular approach)
-SOCEstimator socEstimator;
-SOHEstimator sohEstimator;
+//SOCEstimator socEstimator;
+//SOHEstimator sohEstimator;
+KalmanFilterSOC kfSOC;
+KalmanFilterSOH kfSOH;
 
 // Timing for SOC/SOH updates
 unsigned long lastSOCUpdateTime = 0;
@@ -105,6 +109,9 @@ unsigned long lastSOHUpdateTime = 0;
 unsigned long lastSDSaveTime = 0;
 unsigned long lastCurrentMeasurementTime = 0;
 
+// --- SOH Tracking Variables ---
+float currentCycleCapacityAh = 0.0;
+bool isTrackingDischarge = false;
 
 // Current sensing
 float measuredCurrent = 0.0;
@@ -113,12 +120,14 @@ float currentOffsetVoltage = 0.0;
 bool currentSensorCalibrated = false;
 
 // Charging state
-ChargeState currentChargeState = IDLE;
+// Change this line:
+BMSState currentBMSState = STATE_STARTUP;
+unsigned long prechargeStartTime = 0;
 bool precharge_state = false;
 
 // PID controllers
-PIDController currentPID;  // For CC mode
-PIDController voltagePID;  // For CV mode
+//PIDController currentPID;  // For CC mode
+//PIDController voltagePID;  // For CV mode
 
 // Timing variables
 unsigned long lastBMSReadTime = 0;
@@ -178,11 +187,11 @@ void readBMSData() {
       calculatePackStatistics();
     } else {
       Serial.println("⚠ Error: Failed to parse BMS data");
-      currentChargeState = ERROR;
+      currentBMSState = STATE_FAULT; // FIXED
     }
   } else {
     Serial.println("⚠ Error: No response from BMS chain");
-    currentChargeState = ERROR;
+    currentBMSState = STATE_FAULT; // FIXED
   }
 }
 
@@ -236,135 +245,9 @@ float readVoltage_IN() {
   return (adcValue * 3.3 / 4095.0) * ((INR1 + INR2) / INR2);
 }
 
-// ----- Charging Control -----
-void preCharging() {
-  if (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV) {
-    if (!precharge_state) {
-      digitalWrite(PRECHARGE_RELAY, LOW);
-      delay(5000);
-      digitalWrite(PRECHARGE_RELAY, HIGH);
-      precharge_state = true;
-      return;
-    } 
-    if (precharge_state) {
-      digitalWrite(PRECHARGE_RELAY, HIGH);
-      precharge_state = true;
-      return;
-    }
-  }
-  else {
-    digitalWrite(PRECHARGE_RELAY, LOW);
-    precharge_state = false;
-    return;
-  }
-}
 
-void stopCharging() {
-  preCharging();
-  digitalWrite(CHARGE_ENABLE_PIN, LOW);
-  ledcWrite(PWM_PIN, 511 - 0);
-}
 
-void waitForStartupCondition() {
-  float IN_VOLTAGE = readVoltage_IN();
 
-  bool loadOK = digitalRead(LOAD_SWITCH_PIN);
-  bool tempOK = (avgTemp >= MIN_TEMP && avgTemp <= MAX_TEMP);
-  bool voltageOK = (minCellVoltage >= MIN_CHARGE_VOLTAGE && maxCellVoltage < MAX_CELL_VOLTAGE);
-  bool sensorOK = currentSensorCalibrated;
-  bool chargerOK = (IN_VOLTAGE >= 5.0);
-  
-
-  if (tempOK && voltageOK && sensorOK && chargerOK) {
-    if (currentChargeState == IDLE || currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == DISCHARGING || currentChargeState == BALANCING) {
-      currentChargeState = CHARGING_CC;
-    }
-  }
-
-  else if (tempOK && voltageOK && sensorOK && !chargerOK && loadOK) { 
-    if (currentChargeState == IDLE || currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == DISCHARGING || currentChargeState == BALANCING) {
-      currentChargeState = DISCHARGING;
-    }
-  }
-
-  else if (tempOK && voltageOK && sensorOK) { 
-    if (!balanceStatus[0] || !balanceStatus[1]) {
-      currentChargeState = BALANCING;
-    }
-  }
-
-  else {
-    if (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV || currentChargeState == DISCHARGING || currentChargeState == BALANCING || currentChargeState == ERROR) {
-      currentChargeState = WAITING_FOR_CONDITIONS;
-      stopCharging();
-
-    } else if (currentChargeState == IDLE|| currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == ERROR) {
-      currentChargeState = WAITING_FOR_CONDITIONS;
-    }
-  }
-}
-
-void performCCCharging() {
-  if (maxCellVoltage >= MAX_CELL_VOLTAGE) {
-    currentChargeState = CHARGING_CV;
-    voltagePID.integral = 0;
-    voltagePID.prev_error = 0;
-    return;
-  }
-  if (avgTemp > MAX_TEMP || avgTemp < MIN_TEMP) {
-    currentChargeState = WAITING_FOR_CONDITIONS;
-    return;
-  }
-  digitalWrite(LOAD_ENABLE_PIN, LOW);
-  digitalWrite(CHARGE_ENABLE_PIN, HIGH);
-  preCharging();
-  if (currentChanged == true) {  
-    float pidOutput = computePID(&currentPID, measuredCurrent, 0.1);
-    ledcWrite(0, 511 - (int)pidOutput);
-    currentChanged = false;
-  }
-}
-
-void performCVCharging() {
-  if (maxCellVoltage >= MAX_CELL_VOLTAGE || measuredCurrent <= CHARGE_COMPLETE_CURRENT) {
-    if (!balanceStatus[0] || !balanceStatus[1]) {
-      currentChargeState = BALANCING;
-    } else {
-      currentChargeState = WAITING_FOR_CONDITIONS;
-    }
-    return;
-  }
-  if (avgTemp > MAX_TEMP || avgTemp < MIN_TEMP) {
-    currentChargeState = WAITING_FOR_CONDITIONS;
-    return;
-  }
-  digitalWrite(LOAD_ENABLE_PIN, LOW);
-  digitalWrite(CHARGE_ENABLE_PIN, HIGH);
-  preCharging();
-  if (fbVoltageChanged == true) {  
-    float pidOutput = computePID(&voltagePID, FB_VOLTAGE, 0.1);
-    ledcWrite(0, 511 - (int)pidOutput);
-    fbVoltageChanged = false;
-  }
-}
-
-void performDischarging() {
-digitalWrite(LOAD_ENABLE_PIN, HIGH);
-digitalWrite(CHARGE_ENABLE_PIN, LOW);
-preCharging();
-}
-
-void executeChargeControl() {
-  switch (currentChargeState) {
-    case IDLE: break;
-    case WAITING_FOR_CONDITIONS: stopCharging(); break;
-    case CHARGING_CC: performCCCharging(); break;
-    case CHARGING_CV: performCVCharging(); break;
-    case DISCHARGING: performDischarging(); break;
-    case BALANCING: preCharging(); if (balanceStatus[0] && balanceStatus[1]) stopCharging(); break;
-    case ERROR: stopCharging(); break;
-  }
-}
 
 /*
 // ----- SOC/SOH Estimation -----
@@ -409,27 +292,57 @@ float calculateSOH() {
 // Update SOC using coulomb counting
 void updateSOC() {
     unsigned long currentTime = millis();
-    
-    // Calculate time delta
     if (lastCurrentMeasurementTime == 0) {
         lastCurrentMeasurementTime = currentTime;
         return;
     }
-    
-    float deltaTime_s = (currentTime - lastCurrentMeasurementTime) / 1000.0;
+    float dt = (currentTime - lastCurrentMeasurementTime) / 1000.0;
     lastCurrentMeasurementTime = currentTime;
-    
-    // Update SOC via coulomb counting
-    socEstimator.update(measuredCurrent, deltaTime_s);
+
+    // The Magic: Pass Voltage (OCV) AND Current (CC) together
+    // The filter handles the math to combine them smoothly.
+    float currentSOC = kfSOC.update(totalPackVoltage, measuredCurrent, avgTemp, dt);
 }
 
-// Update SOH (placeholder - currently does nothing)
-void updateSOH() {
-    sohEstimator.update();
-}
+void updateDischargeTracking(float current, float dt_seconds) {
+    // 1. Detect Start of Discharge (Full Charge Condition)
+    // We check if the pack is roughly full (e.g., > 33.0V) and not currently charging
+    if (totalPackVoltage >= (CHARGE_COMPLETE_VOLTAGE - 0.2) && current < 0.5) {
+        if (!isTrackingDischarge) {
+            currentCycleCapacityAh = 0.0; // Reset counter
+            isTrackingDischarge = true;
+            Serial.println("[SOH] Fully Charged. Starting discharge tracking...");
+        }
+    }
 
+    // 2. Integrate Discharge Current
+    if (isTrackingDischarge && current > 0.1) { 
+        currentCycleCapacityAh += (current * dt_seconds / 3600.0);
+    }
+
+    // 3. Detect End of Discharge (Empty Battery)
+    // FIX: Use minCellVoltage (lowest cell) instead of totalPackVoltage
+    if (isTrackingDischarge && minCellVoltage <= MIN_CELL_VOLTAGE) {
+        isTrackingDischarge = false; // Stop tracking
+        
+        float measuredCapacity = currentCycleCapacityAh; 
+        
+        // Filter out partial cycles (only update if > 40% of capacity used)
+        if (measuredCapacity > (BATTERY_CAPACITY * 0.4)) {
+            // Update the SOH Filter
+            kfSOH.update(measuredCapacity, kfSOH.getCycleCount() + 1);
+            
+            // Increment cycle count
+            kfSOH.setCycleCount(kfSOH.getCycleCount() + 1);
+            
+            Serial.printf("[SOH] Cycle Complete! Measured: %.3f Ah\n", measuredCapacity);
+        } else {
+            Serial.println("[SOH] Partial cycle ended. Ignoring capacity update.");
+        }
+    }
+}
 // Calibrate SOC from OCV (call at startup or after rest period)
-void calibrateSOCFromOCV() {
+/*void calibrateSOCFromOCV() {
     initialocv == true;
     // Calculate average cell voltage
     float avgCellVoltage = totalPackVoltage / 8.0;
@@ -443,7 +356,7 @@ void calibrateSOCFromOCV() {
     Serial.printf("SOC calibrated: %.2f%% (Avg Cell V: %.3fV, Temp: %.1f°C)\n",
                 socEstimator.getSOC(), avgCellVoltage, avgTemperature);
 }
-
+*/
 // Get simple timestamp (counter starting from 0)
 unsigned long getEpochTime() {
     return timestampCounter++;
@@ -460,32 +373,29 @@ BMSData getBMSData() {
     data.soh = calculateSOH();
 */
 
-    data.soc = socEstimator.getSOC();
-    data.soh = sohEstimator.getSOH();
-
+    data.soc = kfSOC.getSOC();
+    data.soh = kfSOH.getSOH(); // Get value from the new filter
     for (int i = 0; i < NUM_CELLS; i++) { data.cellVoltages[i] = cells[i]; }
     data.slaveTemperatures[0] = temps[0];
     data.slaveTemperatures[1] = temps[1];
-
-    if (currentChargeState == CHARGING_CC) {
-        data.batteryState = "CHARGING_CC";
-    } else if (currentChargeState == CHARGING_CV) {
-        data.batteryState = "CHARGING_CV";
-    } else if (currentChargeState == IDLE) {
-        data.batteryState = "IDLE";
-    } else if (currentChargeState == ERROR) {
-        data.batteryState = "ERROR";
-    } else if (currentChargeState == WAITING_FOR_CONDITIONS) {
-        data.batteryState = "WAITING";
-    } else if (currentChargeState == BALANCING) {
-        data.batteryState = "BALANCING";
-    } else if (currentChargeState == DISCHARGING) {
-        data.batteryState = "DISCHARGING";
+// Map the new states to strings for the dashboard
+    switch (currentBMSState) {
+        case STATE_IDLE:        data.batteryState = "IDLE"; break;
+        case STATE_PRECHARGING: data.batteryState = "PRECHARGING"; break;
+        case STATE_DISCHARGING: data.batteryState = "DISCHARGING"; break;
+        case STATE_CHARGING:    data.batteryState = "CHARGING"; break;
+        case STATE_FAULT:       data.batteryState = "FAULT"; break;
+        default:                data.batteryState = "UNKNOWN"; break;
     }
 
-    data.prechargeActive = precharge_state;
-    data.protectionPMOSActive = (currentChargeState == CHARGING_CC || currentChargeState == CHARGING_CV);
+    // Update flags
+    data.prechargeActive = (currentBMSState == STATE_PRECHARGING);    // Protection active if charging AND the pin is actually HIGH
+    
+    data.protectionPMOSActive = (currentBMSState == STATE_CHARGING && digitalRead(CHARGE_ENABLE_PIN));
     data.activeBalancingActive = balanceStatus[0] && balanceStatus[1];
+    data.prechargeActive = precharge_state;
+    // Logic: Protection is active if we are in the CHARGING state
+    data.protectionPMOSActive = (currentBMSState == STATE_CHARGING);    data.activeBalancingActive = balanceStatus[0] && balanceStatus[1];
     data.overvoltage = (maxCellVoltage > MAX_CELL_VOLTAGE);
     data.undervoltage = (minCellVoltage < MIN_CELL_VOLTAGE);
     data.overcurrent = (abs(measuredCurrent) > MAX_CURRENT);
@@ -536,11 +446,24 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                AwsEventType type, void *arg, uint8_t *data, size_t len) {
     if(type == WS_EVT_CONNECT) {
         sendBMSData();
-    } else if(type == WS_EVT_DISCONNECT) {
-        // Optional: handle disconnect
+    } 
+    else if(type == WS_EVT_DATA) {
+        // --- NEW: Handle Time Sync Message ---
+        AwsFrameInfo *info = (AwsFrameInfo*)arg;
+        if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+            data[len] = 0; // Null terminate string
+            String msg = (char*)data;
+
+            if (msg.startsWith("TIME:")) {
+                unsigned long browserTime = msg.substring(5).toInt();
+                // Calculate offset: RealTime - (millis()/1000)
+                systemTimeOffset = browserTime - (millis() / 1000);
+                timeSynced = true;
+                Serial.printf("Time Synced from Browser! Offset: %lu\n", systemTimeOffset);
+            }
+        }
     }
 }
-
 /*
 // Initialize lookup tables on SD card (first-time setup)
 void initializeLookupTables() {
@@ -637,27 +560,140 @@ void saveStateToSD() {
 
 // Save current SOC/SOH to SD card periodically
 void saveStateToSD() {
-    unsigned long currentTime = millis();
-    
-    if (currentTime - lastSDSaveTime >= SD_SAVE_INTERVAL) {
-        lastSDSaveTime = currentTime;
-        
-        // Log SOC data
-        float currentSOC = socEstimator.getSOC();
-        sdCard.logSOCData(currentSOC, totalPackVoltage, avgTemp, currentTime);
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - lastSDSaveTime >= SD_SAVE_INTERVAL) {
+        lastSDSaveTime = currentMillis;
+
+        // Calculate Real Time
+        unsigned long realTimestamp;
+        if (timeSynced) {
+            // Real Time = Offset + Current Runtime
+            realTimestamp = systemTimeOffset + (currentMillis / 1000);
+        } else {
+            // Fallback to relative time if never connected
+            realTimestamp = currentMillis / 1000;
+        }
+
+        // Log using realTimestamp
+        float currentSOC = kfSOC.getSOC();
+        sdCard.logSOCData(currentSOC, totalPackVoltage, avgTemp, realTimestamp);
         
         // Log SOH data (placeholder)
-        float currentSOH = sohEstimator.getSOH();
-        int cycleCount = sohEstimator.getCycleCount();
-        sdCard.logSOHData(currentSOH, cycleCount, BATTERY_CAPACITY * (currentSOH / 100.0), currentTime);
+        int cycleCount = kfSOH.getCycleCount();
+        float currentSOH = kfSOH.getSOH();// not sure about this line!!
+        sdCard.logSOHData(currentSOH, cycleCount, BATTERY_CAPACITY * (currentSOH / 100.0), realTimestamp);
         
         // Log complete BMS data
-        sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, currentTime);
+        sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, realTimestamp);
         
-        Serial.println("State saved to SD card");
+        Serial.printf("Logged to SD at %lu\n", realTimestamp);
     }
 }
+// ==================== NEW BMS STATE MACHINE ====================
+void updateBMSStateMachine() {
+  // 1. READ INPUTS
+  // We assume >10V on the Input Pin means a charger is plugged in
+  bool chargerConnected = (readVoltage_IN() > 10.0); 
+  bool loadSwitchOn = digitalRead(LOAD_SWITCH_PIN);  // Physical switch from user
+  
+  // 2. CHECK SAFETY LIMITS
+  bool isOverVoltage = (maxCellVoltage >= MAX_CELL_VOLTAGE);
+  bool isUnderVoltage = (minCellVoltage <= MIN_CELL_VOLTAGE);
+  bool isOverTemp = (avgTemp >= MAX_TEMP);
+  bool isUnderTemp = (avgTemp <= MIN_TEMP);
+  
+  // 3. FAULT CHECK (Highest Priority - Overrules everything else)
+  if (isOverTemp || (currentBMSState != STATE_CHARGING && isUnderTemp)) {
+    currentBMSState = STATE_FAULT;
+  }
+  
+  // 4. RUN STATE LOGIC
+  switch (currentBMSState) {
+    
+    // --- STATE: IDLE (Doing nothing) ---
+    case STATE_STARTUP:
+    case STATE_IDLE:
+      // Safety First: Turn all outputs OFF
+      digitalWrite(PRECHARGE_RELAY, LOW);
+      digitalWrite(LOAD_ENABLE_PIN, LOW);
+      digitalWrite(CHARGE_ENABLE_PIN, LOW);
+      
+      // If charger is plugged in -> Start Charging
+      if (chargerConnected && !isOverVoltage && !isOverTemp && !isUnderTemp) {
+        currentBMSState = STATE_CHARGING;
+      } 
+      // If user flipped the switch -> Start Precharge Sequence
+      else if (loadSwitchOn && !isUnderVoltage && !isOverTemp) {
+        currentBMSState = STATE_PRECHARGING;
+        prechargeStartTime = millis(); // Start the timer
+      }
+      break;
 
+    // --- STATE: PRECHARGE (Soft Start) ---
+    case STATE_PRECHARGING:
+      // Turn on Precharge Relay (Resistor path)
+      digitalWrite(PRECHARGE_RELAY, HIGH);
+      digitalWrite(LOAD_ENABLE_PIN, LOW); // Main contactor still OPEN
+      
+      // Wait for 3 seconds (PRECHARGE_TIME_MS)
+      if (millis() - prechargeStartTime >= PRECHARGE_TIME_MS) {
+        // Time is up! Move to full Drive Mode
+        currentBMSState = STATE_DISCHARGING;
+      }
+      
+      // If user turns off switch or battery dies -> Go back to Idle
+      if (!loadSwitchOn || isUnderVoltage) currentBMSState = STATE_IDLE;
+      break;
+
+    // --- STATE: DISCHARGING (Driving) ---
+    case STATE_DISCHARGING:
+      digitalWrite(PRECHARGE_RELAY, HIGH); // Keep precharge engaged (optional depending on wiring)
+      digitalWrite(LOAD_ENABLE_PIN, HIGH); // CLOSE Main Contactor (Full Power)
+      digitalWrite(CHARGE_ENABLE_PIN, LOW); // Disable Charger
+      
+      // Exit Conditions
+      if (!loadSwitchOn) currentBMSState = STATE_IDLE; // User turned it off
+      if (isUnderVoltage) {
+        Serial.println("❌ UNDERVOLTAGE CUTOFF!");
+        currentBMSState = STATE_FAULT; // Emergency Cutoff
+      }
+      break;
+
+    // --- STATE: CHARGING (Plugged In) ---
+    case STATE_CHARGING:
+      digitalWrite(PRECHARGE_RELAY, LOW);
+      digitalWrite(LOAD_ENABLE_PIN, LOW); // Disconnect Load
+      
+      // "Gatekeeper" Logic:
+      // If battery is full (4.20V), turn OFF charger
+      if (maxCellVoltage >= CHARGE_CUTOFF_VOLTAGE) {
+        digitalWrite(CHARGE_ENABLE_PIN, LOW); 
+      } 
+      // If battery drops a bit (4.10V), turn ON charger
+      else if (maxCellVoltage < CHARGE_RESTART_VOLTAGE) {
+        digitalWrite(CHARGE_ENABLE_PIN, HIGH); 
+      }
+      
+      // Safety Exits
+      if (!chargerConnected) currentBMSState = STATE_IDLE; // Unplugged
+      if (isOverTemp || isOverVoltage) digitalWrite(CHARGE_ENABLE_PIN, LOW); // Safety Stop
+      break;
+
+    // --- STATE: FAULT (Error) ---
+    case STATE_FAULT:
+      // SHUT DOWN EVERYTHING
+      digitalWrite(PRECHARGE_RELAY, LOW);
+      digitalWrite(LOAD_ENABLE_PIN, LOW);
+      digitalWrite(CHARGE_ENABLE_PIN, LOW);
+      
+      // Auto-recover if conditions return to normal
+      if (!isOverTemp && !isUnderVoltage && !isOverVoltage) {
+        currentBMSState = STATE_IDLE;
+      }
+      break;
+  }
+}
 // ----- Setup -----
 void setup() {
     Serial.begin(SERIAL_BAUD);
@@ -671,19 +707,13 @@ void setup() {
     digitalWrite(PRECHARGE_RELAY, LOW);
     digitalWrite(LOAD_ENABLE_PIN, LOW);
     digitalWrite(CHARGE_ENABLE_PIN, LOW);
-    ledcSetup(0, PWM_FREQ, PWM_RES);
-    ledcAttachPin(PWM_PIN, 0);
+    pinMode(CHARGE_ENABLE_PIN, OUTPUT);
+    digitalWrite(CHARGE_ENABLE_PIN, LOW); // Start OFF
     ledcWrite(0, 511 - 0);
     pinMode(CURRENT_SENSOR_PIN, INPUT);
-    
-    initPID(&currentPID, 20.0, 4.0, 6.0, 0.0, 511.0);
-    currentPID.setpoint = CC_TARGET_CURRENT;
-    initPID(&voltagePID, 30.0, 5.0, 1.5, 0.0, 511.0);
-    voltagePID.setpoint = CV_TARGET_VOLTAGE;
-    currentChargeState = CALIBRATING_CURRENT_SENSOR;
+    // KEEP THIS ONE:
     calibrateCurrentSensor();
-    currentChargeState = IDLE;
-
+    currentBMSState = STATE_IDLE; // Set initial state
     if(!SPIFFS.begin(true)) { Serial.println("ERROR: SPIFFS Mount Failed!"); return; }
 
     /*
@@ -710,20 +740,21 @@ void setup() {
     }
     
     // Initialize SOC estimator
-    socEstimator.begin(BATTERY_CAPACITY, 50.0);  // Start at 50% SOC
     
-    // Initialize SOH estimator
-    sohEstimator.begin(BATTERY_CAPACITY);
+
     
     // Perform initial BMS read to get voltage
     readBMSData();
+    // 3. Calculate an estimated startup SOC based on Voltage (OCV)
+    // Note: totalPackVoltage and avgTemp were updated by readBMSData()
+    float startupSOC = kfSOC.estimateSOCFromOCV(totalPackVoltage, avgTemp);    
+
+    // 4. Initialize the Kalman Filter with this calculated value
+    Serial.printf("Auto-detected Startup SOC: %.2f%%\n", startupSOC);
+    kfSOC.initialize(startupSOC, KF_PROCESS_NOISE_COV, KF_MEASUREMENT_NOISE_COV);
+    // Start at 100% health for a new system, or load from SD card if available
+    kfSOH.initialize(100.0, KF_PROCESS_NOISE_COV * 10, KF_MEASUREMENT_NOISE_COV * 10);
     
-    /*
-    // Calibrate SOC from OCV at startup
-    calibrateSOCFromOCV();
-    */
-
-
     // Connect to WiFi
     WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);
@@ -830,39 +861,20 @@ void loop() {
       fbVoltageChanged = true;
     }
     
-    if (currentTime - lastStartupCheckTime >= STARTUP_CHECK_INTERVAL) {
-      lastStartupCheckTime = currentTime;
-      waitForStartupCondition();
-    }
+    // Run the Supervisor Logic (State Machine)
+    updateBMSStateMachine();
+    // ----------------------
 
-    /*
-    executeChargeControl();
-    
-    if (currentTime - lastWebUpdateTime >= WEB_UPDATE_INTERVAL) {
-      lastWebUpdateTime = currentTime;
-      sendBMSData();
-    }
-    
-    // Save state to SD card periodically
-    if (sdCard.isInitialized()) {
-        saveStateToSD();
-    }
-    */
-    
-    executeChargeControl();
-    
     // Update SOC estimation
     if (currentTime - lastSOCUpdateTime >= SOC_UPDATE_INTERVAL) {
         lastSOCUpdateTime = currentTime;
+        // We use the same dt as SOC, which is calculated in updateSOC
+        // BUT since updateSOC is void, we calculate dt here simply:
         updateSOC();
+        float dt = SOC_UPDATE_INTERVAL / 1000.0; 
+        updateDischargeTracking(measuredCurrent, dt);
     }
-    
-    // Update SOH estimation (placeholder)
-    if (currentTime - lastSOHUpdateTime >= SOH_UPDATE_INTERVAL) {
-        lastSOHUpdateTime = currentTime;
-        updateSOH();
-    }
-    
+        
     if (currentTime - lastWebUpdateTime >= WEB_UPDATE_INTERVAL) {
       lastWebUpdateTime = currentTime;
       sendBMSData();
@@ -873,16 +885,5 @@ void loop() {
         saveStateToSD();
     }
 
-    if (currentChargeState == WAITING_FOR_CONDITIONS || currentChargeState == BALANCING)
-    {
-      // Calibrate SOC from OCV at startup
-      if (initialocv == true) {
-        // Do nothing
-      }
-      else
-        calibrateSOCFromOCV();
-    }
 
-    ws.cleanupClients();
-    delay(10);
 }

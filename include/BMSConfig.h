@@ -33,7 +33,7 @@ const int ACS_VCC_VOLTAGE = 3300;       // mV (measured value)
 // ==================== BATTERY PARAMETERS ====================
 const int NUM_CELLS = 8;
 const int NUM_SLAVES = 2;               // Changed from 2 to 4 for GUI
-const float BATTERY_CAPACITY = 100.0;   // Battery capacity in Ah
+const float BATTERY_CAPACITY = 6.0;   // Battery capacity in Ah
 
 // Voltage limits
 const float MAX_CELL_VOLTAGE = 4.2;     // Maximum safe cell voltage
@@ -50,10 +50,19 @@ const float MIN_TEMP = 0.0;             // Minimum temperature for charging
 // Two-stage charging parameters
 const float CC_TARGET_CURRENT = 1.0;        // Constant Current: 1A
 const float CC_TO_CV_VOLTAGE = 32.5;        // Switch to CV at 32.5V pack voltage
-const float CV_TARGET_VOLTAGE = 33.2;       // Constant Voltage: 33.2V (4.15V per cell)
-const float CHARGE_COMPLETE_VOLTAGE = 33.2; // Stop charging at 33.2V
+const float CV_TARGET_VOLTAGE = 33.6;       // Constant Voltage: 33.6V (4.15V per cell)
+const float CHARGE_COMPLETE_VOLTAGE = 33.6; // Stop charging at 33.6V
 const float CHARGE_COMPLETE_CURRENT = 0.1;  // Stop when current drops to 0.1A
+// ==================== CHARGING THRESHOLDS ====================
+// Start charging if max cell is below this (Hysteresis Start)
+const float CHARGE_RESTART_VOLTAGE = 4.10; 
+// Stop charging if max cell hits this (Cutoff)
+const float CHARGE_CUTOFF_VOLTAGE = 4.20;
+// Stop charging if current drops below this (End of Charge detection)
+const float CHARGE_DONE_CURRENT = 0.2;     
 
+// ==================== PRECHARGE TIMING ====================
+const unsigned long PRECHARGE_TIME_MS = 3000; // 3 seconds precharge
 // Voltage divider resistors for feedback
 const float FBR1 = 98600.0;             // Feedback resistor 1
 const float FBR2 = 10040.0;             // Feedback resistor 2

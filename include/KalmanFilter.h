@@ -18,7 +18,7 @@ public:
     float update(float voltage, float current, float temperature, float dt);
     float getSOC() const { return _soc; }
     void setSOC(float soc) { _soc = constrain(soc, 0.0, 100.0); }
-    
+    float estimateSOCFromOCV(float ocv, float temperature);
 private:
     // State variables
     float _soc;                 // State of Charge (%)
@@ -35,7 +35,7 @@ private:
     // Helper functions
     float predictSOC(float current, float dt);
     float estimateOCVFromSOC(float soc, float temperature);
-    float estimateSOCFromOCV(float ocv, float temperature);
+    
 };
 
 // Kalman Filter for SOH estimation
@@ -47,6 +47,7 @@ public:
     float update(float measuredCapacity, int cycleCount);
     float getSOH() const { return _soh; }
     void setSOH(float soh) { _soh = constrain(soh, 0.0, 100.0); }
+    int getCycleCount() const { return _cycleCount; }
     void setCycleCount(int cycles) { _cycleCount = cycles; }
     
 private:
