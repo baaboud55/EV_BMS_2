@@ -79,7 +79,7 @@ float totalPackVoltage = 0;
 float maxCellVoltage = 0;
 float minCellVoltage = 0;
 float avgTemp = 0;
-
+unsigned long faultEntryTime = 0;
 /*
 // SD Card and Kalman Filter objects
 SDCardManager sdCard;
@@ -223,10 +223,16 @@ void readCurrent() {
   }
   float avgRawValue = (float)totalRawValue / numSamples;
   float voltage_mV = (avgRawValue / 4096.0) * ACS_VCC_VOLTAGE;
-  measuredCurrent = (currentOffsetVoltage - voltage_mV) / (ACS_SENSITIVITY * 1000);
-  //if (abs(measuredCurrent) < 0.15) {
-  //  measuredCurrent = 0.0;
-  //}
+  
+  float rawCurrent = (currentOffsetVoltage - voltage_mV) / (ACS_SENSITIVITY * 1000);
+
+  // --- [FIX] Dead Zone Logic ---
+  // If current is less than 0.1A (charging or discharging), ignore it
+  if (abs(rawCurrent) < 0.1) {
+      measuredCurrent = 0.0;
+  } else {
+      measuredCurrent = rawCurrent;
+  }
 }
 
 // ----- Voltage Reading -----
@@ -358,8 +364,16 @@ void updateDischargeTracking(float current, float dt_seconds) {
 }
 */
 // Get simple timestamp (counter starting from 0)
+// --- [FIX 1] Centralized Time Logic ---
+// Returns Unix Timestamp (Seconds since Jan 1 1970)
 unsigned long getEpochTime() {
-    return timestampCounter++;
+    if (timeSynced) {
+        return systemTimeOffset + (millis() / 1000);
+    } else {
+        // Return 0 if not synced yet. 
+        // This tells the Javascript to use its own local time until sync happens.
+        return 0; 
+    }
 }
 
 // ----- GUI Packager -----
@@ -404,13 +418,7 @@ BMSData getBMSData() {
     } else {
         data.remainingRuntime = 999.9;
     }
-    unsigned long now = millis();
-    if (lastCapacityUpdate > 0) {
-        float deltaTime = (now - lastCapacityUpdate) / 3600000.0;
-        cumulativeAh += (data.current) * deltaTime;
-    }
-    lastCapacityUpdate = now;
-    data.cumulativeCapacity = cumulativeAh;
+    data.cumulativeCapacity = (data.soc / 100.0) * BATTERY_CAPACITY;
     data.timestamp = getEpochTime();
     return data;
 }
@@ -559,34 +567,27 @@ void saveStateToSD() {
 */
 
 // Save current SOC/SOH to SD card periodically
+// Save current SOC/SOH to SD card periodically
 void saveStateToSD() {
     unsigned long currentMillis = millis();
 
     if (currentMillis - lastSDSaveTime >= SD_SAVE_INTERVAL) {
         lastSDSaveTime = currentMillis;
+        unsigned long realTimestamp = getEpochTime();
 
-        // Calculate Real Time
-        unsigned long realTimestamp;
-        if (timeSynced) {
-            // Real Time = Offset + Current Runtime
-            realTimestamp = systemTimeOffset + (currentMillis / 1000);
-        } else {
-            // Fallback to relative time if never connected
-            realTimestamp = currentMillis / 1000;
-        }
-
-        // Log using realTimestamp
         float currentSOC = kfSOC.getSOC();
-        sdCard.logSOCData(currentSOC, totalPackVoltage, avgTemp, realTimestamp);
-        
-        // Log SOH data (placeholder)
         int cycleCount = kfSOH.getCycleCount();
-        float currentSOH = kfSOH.getSOH();// not sure about this line!!
+        float currentSOH = kfSOH.getSOH();
+
+        // 1. Log Data (History)
+        sdCard.logSOCData(currentSOC, totalPackVoltage, avgTemp, realTimestamp);
         sdCard.logSOHData(currentSOH, cycleCount, BATTERY_CAPACITY * (currentSOH / 100.0), realTimestamp);
-        
-        // Log complete BMS data
         sdCard.logBMSData(cells, NUM_CELLS, totalPackVoltage, avgTemp, measuredCurrent, realTimestamp);
         
+        // 2. Save State Snapshot (Persistence)
+        // This updates the "last_state.txt" file for the next reboot
+        sdCard.saveLastState(currentSOC, currentSOH, cycleCount);
+
         Serial.printf("Logged to SD at %lu\n", realTimestamp);
     }
 }
@@ -604,8 +605,12 @@ void updateBMSStateMachine() {
   bool isUnderTemp = (avgTemp <= MIN_TEMP);
   
   // 3. FAULT CHECK (Highest Priority - Overrules everything else)
-  if (isOverTemp || (currentBMSState != STATE_CHARGING && isUnderTemp)) {
-    currentBMSState = STATE_FAULT;
+  if (currentBMSState != STATE_FAULT) {
+      if (isOverTemp || (currentBMSState != STATE_CHARGING && isUnderTemp)) {
+        currentBMSState = STATE_FAULT;
+        faultEntryTime = millis(); // Record time
+        Serial.println("Context: Entering FAULT State");
+      }
   }
   
   // 4. RUN STATE LOGIC
@@ -682,14 +687,17 @@ void updateBMSStateMachine() {
 
     // --- STATE: FAULT (Error) ---
     case STATE_FAULT:
-      // SHUT DOWN EVERYTHING
       digitalWrite(PRECHARGE_RELAY, LOW);
       digitalWrite(LOAD_ENABLE_PIN, LOW);
       digitalWrite(CHARGE_ENABLE_PIN, LOW);
       
-      // Auto-recover if conditions return to normal
-      if (!isOverTemp && !isUnderVoltage && !isOverVoltage) {
-        currentBMSState = STATE_IDLE;
+      // 1. Enforce 3 second cooldown before trying to recover
+      if (millis() - faultEntryTime > 3000) {
+          // 2. Check ALL conditions are clear (Added !isUnderTemp)
+          if (!isOverTemp && !isUnderVoltage && !isOverVoltage && !isUnderTemp) {
+            currentBMSState = STATE_IDLE;
+            Serial.println("Context: Fault Cleared -> IDLE");
+          }
       }
       break;
   }
@@ -743,17 +751,37 @@ void setup() {
     
 
     
+    
+    float initialSOH = 100.0; // Default for new battery
+    int initialCycles = 0;
+    float storedSOC = 0;
+    
+    // 2. Try to load history from SD Card
+    if (sdCard.isInitialized()) {
+        float loadedSOH_temp, loadedSOC_temp;
+        int loadedCycles_temp;
+        
+        if (sdCard.loadLastState(loadedSOC_temp, loadedSOH_temp, loadedCycles_temp)) {
+            // Success! Use the stored SOH and Cycles
+            initialSOH = loadedSOH_temp;
+            initialCycles = loadedCycles_temp;
+            storedSOC = loadedSOC_temp;
+        }
+    }
+
+    // 3. Initialize SOC (Still use OCV for accuracy after rest, but we could blend it)
     // Perform initial BMS read to get voltage
     readBMSData();
-    // 3. Calculate an estimated startup SOC based on Voltage (OCV)
-    // Note: totalPackVoltage and avgTemp were updated by readBMSData()
     float startupSOC = kfSOC.estimateSOCFromOCV(totalPackVoltage, avgTemp);    
+    
+    Serial.printf("Startup: OCV_SOC=%.1f%%, Stored_SOH=%.1f%%\n", startupSOC, initialSOH);
 
-    // 4. Initialize the Kalman Filter with this calculated value
-    Serial.printf("Auto-detected Startup SOC: %.2f%%\n", startupSOC);
+    // 4. Initialize Filters with Dynamic Values
     kfSOC.initialize(startupSOC, KF_PROCESS_NOISE_COV, KF_MEASUREMENT_NOISE_COV);
-    // Start at 100% health for a new system, or load from SD card if available
-    kfSOH.initialize(100.0, KF_PROCESS_NOISE_COV * 10, KF_MEASUREMENT_NOISE_COV * 10);
+    
+    // Uses 'initialSOH' which is either 100 (new) or loaded from SD.
+    kfSOH.initialize(initialSOH, KF_PROCESS_NOISE_COV * 10, KF_MEASUREMENT_NOISE_COV * 10);
+    kfSOH.setCycleCount(initialCycles);
     
     // Connect to WiFi
     WiFi.mode(WIFI_STA);

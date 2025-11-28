@@ -9,7 +9,48 @@
 
 SDCardManager::SDCardManager() : _initialized(false), _spi(HSPI) {
 }
+// Add these functions to the end of src/SDCardManager.cpp
 
+bool SDCardManager::saveLastState(float soc, float soh, int cycles) {
+    if (!_initialized) return false;
+
+    // We want to overwrite the file, not append.
+    // The safest way is to delete it first.
+    if (SD.exists("/last_state.txt")) {
+        SD.remove("/last_state.txt");
+    }
+
+    File file = SD.open("/last_state.txt", FILE_WRITE);
+    if (!file) return false;
+
+    // Format: SOC,SOH,CYCLES
+    file.printf("%.2f,%.2f,%d", soc, soh, cycles);
+    file.close();
+    return true;
+}
+
+bool SDCardManager::loadLastState(float &soc, float &soh, int &cycles) {
+    if (!_initialized || !SD.exists("/last_state.txt")) return false;
+
+    File file = SD.open("/last_state.txt", FILE_READ);
+    if (!file) return false;
+
+    String line = file.readStringUntil('\n');
+    file.close();
+
+    // Parse CSV: "78.50,86.10,15"
+    int firstComma = line.indexOf(',');
+    int secondComma = line.lastIndexOf(',');
+
+    if (firstComma == -1 || secondComma == -1) return false;
+
+    soc = line.substring(0, firstComma).toFloat();
+    soh = line.substring(firstComma + 1, secondComma).toFloat();
+    cycles = line.substring(secondComma + 1).toInt();
+
+    Serial.printf("[SD] Loaded State -> SOC:%.1f%%, SOH:%.1f%%, Cycles:%d\n", soc, soh, cycles);
+    return true;
+}
 bool SDCardManager::begin() {
     Serial.println("Initializing SD card...");
     

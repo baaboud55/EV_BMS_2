@@ -324,7 +324,7 @@ class AdvancedBMSMonitor {
         // Update cumulative capacity
         // Update cumulative capacity (Convert Ah -> mAh)
         if (data.cumulativeCapacity !== undefined) {
-            // Multiply by 1000 and show 0 decimal places (e.g., "5255")
+            // Multiply by 1000 for mAh
             document.getElementById('cumulativeCapacity').textContent = (data.cumulativeCapacity * 1000).toFixed(0);
         } else {
             document.getElementById('cumulativeCapacity').textContent = '--';
@@ -386,8 +386,9 @@ class AdvancedBMSMonitor {
 
     updateCharts(data) {
         // NEW (Correct): Uses the browser's current clock
-        const timestamp = new Date();
-
+        const timestamp = (data.timestamp && data.timestamp > 100000) 
+            ? new Date(data.timestamp * 1000) 
+            : new Date();
         // Update cell voltages chart
         if (this.charts.cellVoltagesChart && data.cellVoltages && Array.isArray(data.cellVoltages)) {
             const chart = this.charts.cellVoltagesChart;

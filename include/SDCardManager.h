@@ -39,7 +39,10 @@ public:
     // Initialization
     bool begin();
     void end();
+    bool saveLastState(float soc, float soh, int cycles);
     
+    // Load snapshot on startup
+    bool loadLastState(float &soc, float &soh, int &cycles);
     // Data Logging
     bool logSOCData(float soc, float ocv, float temperature, unsigned long timestamp);
     bool logSOHData(float soh, int cycles, float capacity, unsigned long timestamp);
