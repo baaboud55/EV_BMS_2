@@ -1,6 +1,6 @@
 # 🔋 EV Battery Management System (EV_BMS_2)
 
-> **Senior Project** - College of Engineering and Islamic Architecture Studies (CEIES), King Abdulaziz University (KAU)
+> **Senior Project** - Center of Excellence in Intelligent Engineering Systems (CEIES), King Abdulaziz University (KAU)
 
 An advanced Battery Management System (BMS) for 8-cell Li-ion battery packs, built on the ESP32-S3 microcontroller with real-time monitoring, WiFi dashboard, and over-the-air (OTA) firmware updates.
 
