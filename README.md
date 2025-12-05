@@ -327,18 +327,18 @@ Key parameters in `include/BMSConfig.h`:
 
 ## 👥 Team
 
-This project was developed as a **Senior Project** at the College of Engineering and Islamic Architecture Studies (CEIES), King Abdulaziz University (KAU).
+This project was developed as a **Senior Project** at the Center of Excellence in Intelligent Engineering Systems (CEIES), King Abdulaziz University (KAU).
 
 ### Team Members
 - **Mohammad Baaboud** - [@baaboud55](https://github.com/baaboud55)
-- **Mohammad Samkari**
+- **Mohammad Samkari** 
 - **Mohammad Alsaiary**
 
 ---
 
 ## 🔮 Future Improvements
 
-- [ ] Add Bluetooth Low Energy (BLE) support
+- [ ] Custom pcb
 - [ ] Implement predictive maintenance alerts
 - [ ] Add multi-pack support
 - [ ] Cloud data logging integration
@@ -355,12 +355,12 @@ This project was developed as a **Senior Project** at the College of Engineering
 ## 🙏 Acknowledgments
 
 - King Abdulaziz University (KAU)
-- College of Engineering and Islamic Architecture Studies (CEIES)
+- Center of Excellence in Intelligent Engineering Systems (CEIES)
 - PlatformIO and ESP-IDF communities
 - Chart.js for data visualization
 
 ---
 
 <p align="center">
-  Made with ❤️ at King Abdulaziz University
+  Made at King Abdulaziz University
 </p>
